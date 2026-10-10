@@ -129,3 +129,19 @@ resource "google_sql_user" "datadog" {
   instance = google_sql_database_instance.nusabank[each.key].name
   password = random_password.datadog[each.key].result
 }
+
+# Admin user for bootstrap jobs only (DBM grants, extensions). Services never use it.
+resource "random_password" "dbadmin" {
+  for_each = local.sql_instances
+
+  length  = 32
+  special = false
+}
+
+resource "google_sql_user" "dbadmin" {
+  for_each = local.sql_instances
+
+  name     = "dbadmin"
+  instance = google_sql_database_instance.nusabank[each.key].name
+  password = random_password.dbadmin[each.key].result
+}

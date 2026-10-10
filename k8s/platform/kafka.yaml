@@ -1,0 +1,115 @@
+# Single KRaft node: enough for demo throughput, and Data Streams Monitoring reads
+# consumer lag the same way on one broker as on three.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: nusabank
+  labels:
+    strimzi.io/cluster: nusabank-kafka
+spec:
+  replicas: 1
+  roles: [controller, broker]
+  storage:
+    type: persistent-claim
+    size: 20Gi
+    deleteClaim: false
+  resources:
+    requests: { cpu: 500m, memory: 1536Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  template:
+    pod:
+      metadata:
+        labels:
+          app: kafka
+          app.kubernetes.io/name: kafka
+          tags.datadoghq.com/service: nusabank-kafka
+          tags.datadoghq.com/env: demo
+          tags.datadoghq.com/version: "4.2.1"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: nusabank-kafka
+  namespace: nusabank
+spec:
+  kafka:
+    version: 4.2.1
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: false
+  entityOperator:
+    topicOperator:
+      resources:
+        requests: { cpu: 50m, memory: 256Mi }
+        limits: { cpu: 500m, memory: 512Mi }
+    userOperator:
+      resources:
+        requests: { cpu: 50m, memory: 256Mi }
+        limits: { cpu: 500m, memory: 512Mi }
+---
+# Topics mirror the x-kafka-topic contracts in catalog/openapi.yaml.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: payments-transfer-v1
+  namespace: nusabank
+  labels:
+    strimzi.io/cluster: nusabank-kafka
+spec:
+  topicName: payments.transfer.v1
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: biller-payment-v1
+  namespace: nusabank
+  labels:
+    strimzi.io/cluster: nusabank-kafka
+spec:
+  topicName: biller.payment.v1
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: loan-disbursement-v1
+  namespace: nusabank
+  labels:
+    strimzi.io/cluster: nusabank-kafka
+spec:
+  topicName: loan.disbursement.v1
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: ledger-posted-v1
+  namespace: nusabank
+  labels:
+    strimzi.io/cluster: nusabank-kafka
+spec:
+  topicName: ledger.posted.v1
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000

@@ -36,6 +36,50 @@ resource "google_secret_manager_secret_version" "db_datadog" {
   secret_data = random_password.datadog[each.key].result
 }
 
+resource "google_secret_manager_secret" "db_admin" {
+  for_each = local.sql_instances
+
+  secret_id = "${var.name_prefix}-db-${each.key}-admin-password"
+  labels    = { app = "nusabank" }
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_admin" {
+  for_each = local.sql_instances
+
+  secret      = google_secret_manager_secret.db_admin[each.key].id
+  secret_data = random_password.dbadmin[each.key].result
+}
+
+# In-cluster stores (MongoDB for chat-service, Redis for cache and agent memory).
+resource "random_password" "platform" {
+  for_each = toset(["mongodb-root", "redis"])
+
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret" "platform" {
+  for_each = random_password.platform
+
+  secret_id = "${var.name_prefix}-${each.key}-password"
+  labels    = { app = "nusabank" }
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "platform" {
+  for_each = random_password.platform
+
+  secret      = google_secret_manager_secret.platform[each.key].id
+  secret_data = each.value.result
+}
+
 # Secrets created by hand (API keys, RUM, JWT). Values never live in Terraform.
 locals {
   manual_secret_ids = [
@@ -52,6 +96,8 @@ locals {
     local.manual_secret_ids,
     [for s in google_secret_manager_secret.db_service : s.secret_id],
     [for s in google_secret_manager_secret.db_datadog : s.secret_id],
+    [for s in google_secret_manager_secret.db_admin : s.secret_id],
+    [for s in google_secret_manager_secret.platform : s.secret_id],
   )
 }
 
@@ -80,5 +126,7 @@ resource "google_secret_manager_secret_iam_member" "secret_reader" {
   depends_on = [
     google_secret_manager_secret.db_service,
     google_secret_manager_secret.db_datadog,
+    google_secret_manager_secret.db_admin,
+    google_secret_manager_secret.platform,
   ]
 }

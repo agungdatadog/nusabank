@@ -1,0 +1,127 @@
+# One agent config for every Datadog pillar the series demonstrates.
+# The Admission Controller injects DD_AGENT_HOST / DD_ENV / DD_SERVICE / DD_VERSION
+# into pods labelled admission.datadoghq.com/enabled: "true" — services never hand-write them.
+apiVersion: datadoghq.com/v2alpha1
+kind: DatadogAgent
+metadata:
+  name: datadog
+  namespace: datadog
+spec:
+  global:
+    site: datadoghq.com
+    clusterName: indowebinar-gke
+    credentials:
+      apiSecret:
+        secretName: datadog-secret
+        keyName: api-key
+      appSecret:
+        secretName: datadog-secret
+        keyName: app-key
+    tags:
+      - env:demo
+      - team:indowebinar
+    # Resolves ENC[k8s_secret@datadog/datadog-dbm/<key>] in check configs.
+    secretBackend:
+      command: /readsecret_multiple_providers.sh
+      roles:
+        - namespace: datadog
+          secrets: [datadog-dbm]
+
+  features:
+    apm:
+      enabled: true
+      hostPortConfig:
+        enabled: true
+      unixDomainSocketConfig:
+        enabled: true
+    dogstatsd:
+      hostPortConfig:
+        enabled: true
+      unixDomainSocketConfig:
+        enabled: true
+    logCollection:
+      enabled: true
+      containerCollectAll: true
+    liveProcessCollection:
+      enabled: true
+    npm:
+      enabled: true
+    usm:
+      enabled: true
+    admissionController:
+      enabled: true
+      mutateUnlabelled: false
+    clusterChecks:
+      enabled: true
+      useClusterChecksRunners: true
+    orchestratorExplorer:
+      enabled: true
+    kubeStateMetricsCore:
+      enabled: true
+    eventCollection:
+      collectKubernetesEvents: true
+    remoteConfiguration:
+      enabled: true
+
+  override:
+    nodeAgent:
+      image:
+        tag: "7.83.3"
+    clusterAgent:
+      image:
+        tag: "7.83.3"
+      # DBM for Cloud SQL runs as cluster checks: one runner owns each instance.
+      # Hosts are terraform/infra output cloudsql_private_ips.
+      extraConfd:
+        configDataMap:
+          postgres.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - dbm: true
+                host: 10.70.0.7
+                port: 5432
+                username: datadog
+                password: ENC[k8s_secret@datadog/datadog-dbm/pg-core]
+                dbname: postgres
+                database_autodiscovery:
+                  enabled: true
+                gcp:
+                  project_id: datadog-ese-sandbox
+                  instance_id: indowebinar-pg-core
+                tags:
+                  - env:demo
+                  - dbinstance:indowebinar-pg-core
+              - dbm: true
+                host: 10.70.0.6
+                port: 5432
+                username: datadog
+                password: ENC[k8s_secret@datadog/datadog-dbm/pg-channel]
+                dbname: postgres
+                database_autodiscovery:
+                  enabled: true
+                gcp:
+                  project_id: datadog-ese-sandbox
+                  instance_id: indowebinar-pg-channel
+                tags:
+                  - env:demo
+                  - dbinstance:indowebinar-pg-channel
+          mysql.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - dbm: true
+                host: 10.70.0.5
+                port: 3306
+                username: datadog
+                password: ENC[k8s_secret@datadog/datadog-dbm/mysql-partner]
+                gcp:
+                  project_id: datadog-ese-sandbox
+                  instance_id: indowebinar-mysql-partner
+                tags:
+                  - env:demo
+                  - dbinstance:indowebinar-mysql-partner
+    clusterChecksRunner:
+      image:
+        tag: "7.83.3"
+      replicas: 2

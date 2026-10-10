@@ -1,0 +1,161 @@
+# Idempotent DBM setup for the three Cloud SQL instances, per Datadog's Cloud SQL
+# guides. Re-run after adding a database: kubectl delete job -n nusabank -l app=dbm-bootstrap
+# and re-apply. Instance IPs come from `terraform -chdir=terraform/infra output cloudsql_private_ips`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dbm-bootstrap-sql
+  namespace: nusabank
+data:
+  postgres.sh: |
+    set -eu
+    export PGUSER=dbadmin PGCONNECT_TIMEOUT=10
+    setup() {
+      export PGHOST="$1" PGPASSWORD="$2"; shift 2
+      psql -v ON_ERROR_STOP=1 -d postgres -c "ALTER ROLE datadog INHERIT; GRANT pg_monitor TO datadog;"
+      for db in postgres "$@"; do
+        echo "== $PGHOST/$db"
+        psql -v ON_ERROR_STOP=1 -d "$db" -f /sql/postgres-db.sql
+      done
+    }
+    setup 10.70.0.7 "$PG_CORE_ADMIN_PASSWORD" account payment ledger
+    setup 10.70.0.6 "$PG_CHANNEL_ADMIN_PASSWORD" auth loan admin
+  postgres-db.sql: |
+    CREATE SCHEMA IF NOT EXISTS datadog;
+    GRANT USAGE ON SCHEMA datadog TO datadog;
+    GRANT USAGE ON SCHEMA public TO datadog;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public;
+    CREATE OR REPLACE FUNCTION datadog.explain_statement(
+      l_query TEXT,
+      OUT explain JSON
+    )
+    RETURNS SETOF JSON AS
+    $$
+    DECLARE
+      curs REFCURSOR;
+      plan JSON;
+    BEGIN
+      OPEN curs FOR EXECUTE pg_catalog.concat('EXPLAIN (FORMAT JSON) ', l_query);
+      FETCH curs INTO plan;
+      CLOSE curs;
+      RETURN QUERY SELECT plan;
+    END;
+    $$
+    LANGUAGE 'plpgsql'
+    RETURNS NULL ON NULL INPUT
+    SECURITY DEFINER;
+  mysql.sh: |
+    set -eu
+    mysql --connect-timeout=10 -h 10.70.0.5 -u dbadmin -p"$MYSQL_PARTNER_ADMIN_PASSWORD" < /sql/mysql.sql
+    echo "== mysql-partner done"
+  # Cloud SQL API-created MySQL users have host '' (matches any host), not '%'.
+  mysql.sql: |
+    GRANT REPLICATION CLIENT ON *.* TO 'datadog'@'';
+    GRANT PROCESS ON *.* TO 'datadog'@'';
+    GRANT SELECT ON performance_schema.* TO 'datadog'@'';
+    CREATE SCHEMA IF NOT EXISTS datadog;
+    GRANT EXECUTE ON datadog.* TO 'datadog'@'';
+    GRANT CREATE TEMPORARY TABLES ON datadog.* TO 'datadog'@'';
+    DROP PROCEDURE IF EXISTS datadog.explain_statement;
+    DROP PROCEDURE IF EXISTS datadog.enable_events_statements_consumers;
+    DROP PROCEDURE IF EXISTS biller.explain_statement;
+    DROP PROCEDURE IF EXISTS rewards.explain_statement;
+    DELIMITER $$
+    CREATE PROCEDURE datadog.explain_statement(IN query TEXT)
+        SQL SECURITY DEFINER
+    BEGIN
+        SET @explain := CONCAT('EXPLAIN FORMAT=json ', query);
+        PREPARE stmt FROM @explain;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END $$
+    CREATE PROCEDURE datadog.enable_events_statements_consumers()
+        SQL SECURITY DEFINER
+    BEGIN
+        UPDATE performance_schema.setup_consumers SET enabled='YES' WHERE name LIKE 'events_statements_%';
+        UPDATE performance_schema.setup_consumers SET enabled='YES' WHERE name = 'events_waits_current';
+    END $$
+    CREATE PROCEDURE biller.explain_statement(IN query TEXT)
+        SQL SECURITY DEFINER
+    BEGIN
+        SET @explain := CONCAT('EXPLAIN FORMAT=json ', query);
+        PREPARE stmt FROM @explain;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END $$
+    CREATE PROCEDURE rewards.explain_statement(IN query TEXT)
+        SQL SECURITY DEFINER
+    BEGIN
+        SET @explain := CONCAT('EXPLAIN FORMAT=json ', query);
+        PREPARE stmt FROM @explain;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END $$
+    DELIMITER ;
+    GRANT EXECUTE ON PROCEDURE datadog.enable_events_statements_consumers TO 'datadog'@'';
+    GRANT EXECUTE ON PROCEDURE biller.explain_statement TO 'datadog'@'';
+    GRANT EXECUTE ON PROCEDURE rewards.explain_statement TO 'datadog'@'';
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dbm-bootstrap-postgres
+  namespace: nusabank
+  labels:
+    app: dbm-bootstrap
+    app.kubernetes.io/name: dbm-bootstrap
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: dbm-bootstrap
+        app.kubernetes.io/name: dbm-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:15.19-alpine
+          command: ["sh", "/sql/postgres.sh"]
+          envFrom:
+            - secretRef: { name: db-bootstrap }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          volumeMounts:
+            - { name: sql, mountPath: /sql }
+      volumes:
+        - name: sql
+          configMap: { name: dbm-bootstrap-sql }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dbm-bootstrap-mysql
+  namespace: nusabank
+  labels:
+    app: dbm-bootstrap
+    app.kubernetes.io/name: dbm-bootstrap
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: dbm-bootstrap
+        app.kubernetes.io/name: dbm-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mysql
+          image: mysql:8.4.10
+          command: ["sh", "/sql/mysql.sh"]
+          envFrom:
+            - secretRef: { name: db-bootstrap }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 200m, memory: 256Mi }
+          volumeMounts:
+            - { name: sql, mountPath: /sql }
+      volumes:
+        - name: sql
+          configMap: { name: dbm-bootstrap-sql }

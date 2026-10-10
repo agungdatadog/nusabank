@@ -1,0 +1,77 @@
+# account-service cache and ai-agent conversation memory. AOF on a PVC so agent
+# memory survives a pod reschedule.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: nusabank
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: nusabank
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/name: redis
+        tags.datadoghq.com/service: nusabank-redis
+        tags.datadoghq.com/env: demo
+        tags.datadoghq.com/version: "8.6.7"
+    spec:
+      containers:
+        - name: redis
+          image: redis:8.6.7-alpine
+          command: ["sh", "-c"]
+          args:
+            - exec redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes --maxmemory 400mb --maxmemory-policy allkeys-lru
+          ports:
+            - containerPort: 6379
+              name: redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: platform-credentials, key: REDIS_PASSWORD }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: premium-rwo
+        resources:
+          requests:
+            storage: 5Gi
