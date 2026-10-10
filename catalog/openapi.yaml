@@ -747,7 +747,10 @@ paths:
       tags: [loan-service]
       operationId: submitLoanApplication
       summary: Submit for credit check and decision
-      description: Calls the credit bureau on partner-mock. Approved applications are disbursed and emit `loan.disbursement.v1`.
+      description: |
+        Calls the credit bureau on partner-mock. Decision: grade A/B approved when DSR <= 50%,
+        grade C when DSR <= 40%, D/E rejected (DSR = (new installment + existing obligations) /
+        monthly income). Approved applications are disbursed and emit `loan.disbursement.v1`.
       responses:
         '200':
           description: Application after decision (or `UNDER_REVIEW`)
@@ -1851,8 +1854,12 @@ components:
       description: Emitted as `nusabank.loan.application.count` stage
     LoanApplicationRequest:
       type: object
-      required: [product_code, asset_price, tenor_months, disbursement_account_number, monthly_income]
+      required: [product_code, asset_price, tenor_months, disbursement_account_number, monthly_income, nik]
       properties:
+        nik:
+          type: string
+          pattern: '^\d{16}$'
+          description: 'Applicant NIK as on the KTP; used for the credit bureau check'
         product_code: { $ref: '#/components/schemas/LoanProductCode' }
         asset_price: { $ref: '#/components/schemas/Money' }
         down_payment: { $ref: '#/components/schemas/Money' }

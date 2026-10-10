@@ -1,0 +1,108 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: loan-service
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: loan-service
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: indowebinar-db-loan-password }
+    - secretKey: JWT_SECRET
+      remoteRef: { key: indowebinar-jwt-secret }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loan-service
+  namespace: nusabank
+  labels: &labels
+    app: loan-service
+    app.kubernetes.io/name: loan-service
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-loan
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.2"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: loan-service
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        admission.datadoghq.com/enabled: "true"
+        nusabank.io/lang: java # opts in to SSI tracer injection
+        # java-dogstatsd-client speaks UDP; hostip mode gives it DD_AGENT_HOST:8125.
+        admission.datadoghq.com/config.mode: hostip
+    spec:
+      containers:
+        - name: loan-service
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/loan-service:0.1.2
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: 10.70.0.6 # indowebinar-pg-channel (terraform/infra output cloudsql_private_ips)
+            - name: DB_NAME
+              value: loan
+            - name: DB_USER
+              value: loan
+            - name: DD_LOGS_INJECTION
+              value: "true"
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_DATA_STREAMS_ENABLED
+              value: "true"
+            - name: DD_DBM_PROPAGATION_MODE
+              value: full
+            - name: DD_APPSEC_ENABLED
+              value: "true"
+            - name: DD_IAST_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef: { name: loan-service }
+          resources:
+            requests: { cpu: 300m, memory: 768Mi }
+            limits: { cpu: "1500m", memory: 1Gi }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loan-service
+  namespace: nusabank
+  annotations:
+    # Container-native load balancing: the GCE Ingress targets pod IPs directly.
+    cloud.google.com/neg: '{"ingress": true}'
+  labels:
+    app: loan-service
+    app.kubernetes.io/name: loan-service
+spec:
+  selector:
+    app: loan-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

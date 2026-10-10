@@ -1,0 +1,41 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: loan-service
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:loan}
+    username: ${DB_USER:loan}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:nusabank-kafka-kafka-bootstrap.nusabank.svc.cluster.local:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+nusabank:
+  jwt-secret: ${JWT_SECRET}
+  partner-mock-url: ${PARTNER_MOCK_URL:http://partner-mock.nusabank.svc.cluster.local:8080}
+  account-service-url: ${ACCOUNT_SERVICE_URL:http://account-service.nusabank.svc.cluster.local:8080}
