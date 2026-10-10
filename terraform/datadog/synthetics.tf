@@ -13,6 +13,21 @@ variable "synthetics_username" {
   default     = "yusuf.tanjung"
 }
 
+# Relaxed day-to-day; tighten for a live session, e.g.
+#   terraform apply -var synthetics_api_interval=60 -var synthetics_browser_interval=60
+# then apply again without the -var flags afterwards.
+variable "synthetics_api_interval" {
+  type        = number
+  description = "Seconds between API test runs"
+  default     = 300
+}
+
+variable "synthetics_browser_interval" {
+  type        = number
+  description = "Seconds between browser test runs"
+  default     = 600
+}
+
 locals {
   synthetics_locations = ["aws:ap-southeast-3", "aws:ap-southeast-1"] # Jakarta, Singapore
   synthetics_tags      = ["env:demo", "app:nusabank", "team:indowebinar", "episode:ep1"]
@@ -149,7 +164,7 @@ resource "datadog_synthetics_test" "login_journey" {
   }
 
   options_list {
-    tick_every          = 300 # every 5 minutes
+    tick_every          = var.synthetics_browser_interval
     min_location_failed = 1
     retry {
       count    = 1
@@ -242,7 +257,7 @@ resource "datadog_synthetics_test" "api_customer_flow" {
   }
 
   options_list {
-    tick_every          = 60
+    tick_every          = var.synthetics_api_interval
     min_location_failed = 1
     retry {
       count    = 1
