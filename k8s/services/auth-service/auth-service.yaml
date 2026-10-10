@@ -31,7 +31,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-auth
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.2.2"
+    tags.datadoghq.com/version: "0.2.3"
 spec:
   replicas: 2
   selector:
@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.2.2
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.2.3
           ports:
             - name: http
               containerPort: 8080
@@ -61,6 +61,9 @@ spec:
               value: auth
             - name: DD_LOGS_INJECTION
               value: "true"
+            # Comments each SQL statement with the trace context: DBM query samples link to the APM trace.
+            - name: DD_DBM_PROPAGATION_MODE
+              value: full
             - name: DD_RUNTIME_METRICS_ENABLED
               value: "true"
             - name: DD_PROFILING_ENABLED

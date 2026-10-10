@@ -10,15 +10,19 @@ import { onboarding, promotions } from "./routes/onboarding";
 
 const app = new Hono();
 
-// Name the http.request span after the matched route, e.g. "POST /api/auth/login",
-// so APM groups endpoints instead of raw URLs.
+// One log line per request, written inside the request's span so the injected
+// tracer stamps dd.trace_id / dd.span_id on it (log <-> trace correlation).
 app.use("*", async (c, next) => {
+  if (c.req.path === "/healthz" || c.req.path === "/readyz") return next();
+  const start = performance.now();
   await next();
-  const span = tracer.scope().active();
-  if (span && c.req.routePath && c.req.routePath !== "/*") {
-    span.setTag("resource.name", `${c.req.method} ${c.req.routePath}`);
-    span.setTag("http.route", c.req.routePath);
-  }
+  const status = c.res.status;
+  // The last non-middleware match is the endpoint, e.g. /api/auth/login.
+  const route = c.req.matchedRoutes.filter((r) => r.method !== "ALL").at(-1)?.path ?? c.req.path;
+  logger[status >= 500 ? "error" : "info"](
+    { http: { method: c.req.method, route, status_code: status }, duration_ms: Math.round(performance.now() - start) },
+    "request completed",
+  );
 });
 
 app.get("/healthz", (c) => c.json({ status: "ok" }));

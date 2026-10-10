@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-partner-mock
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.2"
+    tags.datadoghq.com/version: "0.1.3"
 spec:
   replicas: 1
   strategy:
@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: partner-mock
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.2
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.3
           ports:
             - name: http
               containerPort: 8080

@@ -69,6 +69,19 @@ still thin. Never take the environment down to "finish a service properly".
   Go services (payment, partner-mock) compile in dd-trace-go; SSI does not cover Go.
 - Health probes are dropped at the Agent (`DD_APM_IGNORE_RESOURCES`); don't filter
   them per service.
+
+### Correlation checklist — every service, no exceptions
+The series promises one connected picture; a missing link is a broken demo.
+
+| Link | How |
+|------|-----|
+| Log ↔ Trace | JSON logs, `DD_LOGS_INJECTION=true` (SSI) or the slog integration (Go); one `request completed` line per request, logged inside the request span |
+| DBM ↔ Trace | `DD_DBM_PROPAGATION_MODE=full` on every service with a SQL database |
+| RUM ↔ Trace | frontend `allowedTracingUrls` with `propagatorTypes: ["datadog", "tracecontext"]`; API served same-origin under `/api` |
+| Trace ↔ Trace | never strip `traceparent` / `x-datadog-*` headers; propagate context into Kafka messages (DSM) |
+| Profile ↔ Trace | `DD_PROFILING_ENABLED=true` (code hotspots are on by default) |
+| Infra ↔ everything | unified service tagging labels on every Deployment |
+| User ↔ Trace | `usr.id` = CIF on the root span (`setUser` / `Spans.setUser`) |
 - Unified service tagging on every service: `service`, `env`, `version`.
 - Dashboards, monitors, SLOs and Synthetics are **code**, in `terraform/datadog/`.
   Nothing configured only through the UI — it must survive a rebuild.

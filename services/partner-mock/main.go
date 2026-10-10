@@ -19,6 +19,7 @@ import (
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/DataDog/dd-trace-go/v2/profiler"
 	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
 type config struct {
@@ -62,6 +63,7 @@ func main() {
 	r.Use(chitrace.Middleware(chitrace.WithIgnoreRequest(func(r *http.Request) bool {
 		return r.URL.Path == "/healthz" || r.URL.Path == "/readyz"
 	})))
+	r.Use(requestLog)
 	r.Get("/healthz", ok)
 	r.Get("/readyz", ok)
 
@@ -99,6 +101,27 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// requestLog writes one line per request inside the request's span, so every trace
+// has a correlated log line (dd.trace_id / dd.span_id via the slog integration).
+func requestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		level := slog.LevelInfo
+		if ww.Status() >= 500 {
+			level = slog.LevelError
+		}
+		slog.Log(r.Context(), level, "request completed",
+			"http.method", r.Method, "http.route", chi.RouteContext(r.Context()).RoutePattern(),
+			"http.status_code", ww.Status(), "duration_ms", time.Since(start).Milliseconds())
+	})
 }
 
 func ok(w http.ResponseWriter, _ *http.Request) {

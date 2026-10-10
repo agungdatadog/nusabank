@@ -176,14 +176,14 @@ func (s *scenarioStore) list(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.snapshot())
 }
 
-func (s *scenarioStore) reset(w http.ResponseWriter, _ *http.Request) {
+func (s *scenarioStore) reset(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	for id, sc := range s.items {
 		sc.Enabled = false
 		s.items[id] = sc
 	}
 	s.mu.Unlock()
-	slog.Warn("all scenarios disabled — healthy baseline restored")
+	slog.WarnContext(r.Context(), "all scenarios disabled — healthy baseline restored")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -199,7 +199,7 @@ func (s *scenarioStore) put(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), "")
 		return
 	}
-	slog.Warn("scenario updated", "scenario.id", saved.ID, "partner.name", saved.Target,
+	slog.WarnContext(r.Context(), "scenario updated", "scenario.id", saved.ID, "partner.name", saved.Target,
 		"enabled", saved.Enabled, "latency_ms", saved.LatencyMS, "error_rate", saved.ErrorRate,
 		"biller_code", saved.BillerCode)
 	writeJSON(w, http.StatusOK, saved)
