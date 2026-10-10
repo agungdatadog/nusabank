@@ -98,6 +98,9 @@ kind: Service
 metadata:
   name: auth-service
   namespace: nusabank
+  annotations:
+    # Container-native load balancing: the GCE Ingress targets pod IPs directly.
+    cloud.google.com/neg: '{"ingress": true}'
   labels:
     app: auth-service
     app.kubernetes.io/name: auth-service

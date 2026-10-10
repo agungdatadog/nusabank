@@ -76,6 +76,20 @@ public final class PostingRules {
         return lines;
     }
 
+    /** payments.transfer.v1 / transfer.received — money arriving from another bank. */
+    public static List<Line> inbound(JsonNode e) {
+        String rail = text(e, "rail");
+        String railName = "BIFAST".equals(rail) ? "BI FAST" : rail;
+        String remark = text(e, "description");
+        String desc = remark.isEmpty()
+                ? railName + " DARI " + shortBank(text(e, "sender_bank_name")).toUpperCase(Locale.ROOT) + " " + text(e, "sender_name")
+                : remark + " - " + text(e, "sender_name");
+        BigDecimal amount = money(e, "amount");
+        return List.of(
+                new Line("NOSTRO-" + rail, "DEBIT", amount, "IDR", rail, desc, null),
+                new Line(CUST + text(e, "account_number"), "CREDIT", amount, "IDR", rail, desc, null));
+    }
+
     /** biller.payment.v1 — the customer pays the aggregator (and the fee to the bank). */
     public static List<Line> billPayment(JsonNode e) {
         if (!"SUCCESS".equals(text(e, "status"))) return List.of();

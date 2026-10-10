@@ -1,0 +1,68 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: load-generator
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: load-generator
+  data:
+    - secretKey: DEMO_CUSTOMER_PASSWORD
+      remoteRef: { key: indowebinar-demo-customer-password }
+    - secretKey: DEMO_MFA_OTP
+      remoteRef: { key: indowebinar-demo-mfa-otp }
+---
+# Runs forever and is the source of EP1's traffic history — never scale it down to
+# "save resources" before the series is over.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: nusabank
+  labels: &labels
+    app: load-generator
+    app.kubernetes.io/name: load-generator
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-load-generator
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.0"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      containers:
+        - name: k6
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.1.0
+          env:
+            # Through the public Ingress, so GCP load balancer metrics see real traffic.
+            - name: BASE_URL
+              value: http://136.69.32.40
+            - name: PEAK_JOURNEYS_PER_SECOND
+              value: "0.4"
+          envFrom:
+            - secretRef: { name: load-generator }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          livenessProbe:
+            exec: { command: ["sh", "-c", "pgrep k6"] }
+            periodSeconds: 30
+          readinessProbe:
+            exec: { command: ["sh", "-c", "pgrep k6"] }
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 12345 # k6 image user
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }

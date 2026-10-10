@@ -70,6 +70,9 @@ kind: Service
 metadata:
   name: frontend
   namespace: nusabank
+  annotations:
+    # Container-native load balancing: the GCE Ingress targets pod IPs directly.
+    cloud.google.com/neg: '{"ingress": true}'
   labels:
     app: frontend
     app.kubernetes.io/name: frontend

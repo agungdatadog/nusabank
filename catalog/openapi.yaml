@@ -580,6 +580,39 @@ paths:
         '204': { description: Batch applied }
         '400': { $ref: '#/components/responses/BadRequest' }
 
+  /internal/rails/inbound:
+    post:
+      tags: [payment-service]
+      operationId: receiveInboundTransfer
+      summary: Credit arriving from another bank over BI FAST or SKN
+      description: |
+        Called by the rail side (the load generator plays "other banks" in the demo).
+        Idempotent on rail_reference. Emits transfer.received on payments.transfer.v1.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InboundTransferRequest' }
+      responses:
+        '201':
+          description: Accepted and queued for posting
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transfer_id, status]
+                properties:
+                  transfer_id: { type: string, format: uuid }
+                  status: { type: string, enum: [SUCCESS] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422':
+          description: Destination account unknown, inactive or not IDR
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
   # ───────────────────────────── ledger-worker ─────────────────────────────
   /internal/ledger/journals:
     get:
@@ -2060,7 +2093,7 @@ components:
     TransferEvent:
       x-kafka-topic: payments.transfer.v1
       x-kafka-key: transfer_id
-      description: Emitted on every terminal transfer state. Consumers — ledger-worker, rewards-service.
+      description: 'event_type transfer.completed — every terminal state of an outgoing transfer. Consumers — ledger-worker, rewards-service.'
       allOf:
         - $ref: '#/components/schemas/EventEnvelope'
         - type: object
@@ -2084,6 +2117,36 @@ components:
               type: string
               format: uuid
               description: 'Covers amount + fee; consumed by the ledger posting of the principal'
+    InboundTransferRequest:
+      type: object
+      required: [rail_reference, rail, sender_bank_code, sender_account_number, sender_name, destination_account_number, amount]
+      properties:
+        rail_reference: { type: string, description: 'Rail id of the credit; replays are ignored' }
+        rail: { type: string, enum: [BIFAST, SKN] }
+        sender_bank_code: { $ref: '#/components/schemas/BankCode' }
+        sender_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        sender_name: { type: string, examples: ['PT GARUDA LOGISTIK NUSANTARA'] }
+        destination_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        amount: { $ref: '#/components/schemas/Money' }
+        description: { type: string, description: 'Payer remark, e.g. payroll', examples: ['GAJI OKTOBER 2026'] }
+    InboundTransferEvent:
+      x-kafka-topic: payments.transfer.v1
+      x-kafka-key: transfer_id
+      description: A credit received from another bank. Consumers — ledger-worker, rewards-service.
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [transfer_id, rail, account_number, sender_bank_name, sender_name, amount]
+          properties:
+            event_type: { const: transfer.received }
+            transfer_id: { type: string, format: uuid }
+            rail: { type: string, enum: [BIFAST, SKN] }
+            account_number: { $ref: '#/components/schemas/AccountNumber' }
+            sender_bank_name: { type: string }
+            sender_name: { type: string }
+            sender_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+            amount: { $ref: '#/components/schemas/Money' }
+            description: { type: string }
     BillPaymentEvent:
       x-kafka-topic: biller.payment.v1
       x-kafka-key: payment_id

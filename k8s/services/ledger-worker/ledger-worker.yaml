@@ -25,7 +25,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-ledger
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.1"
+    tags.datadoghq.com/version: "0.1.2"
 spec:
   replicas: 2 # consumer group shares 6 partitions per topic
   selector:
@@ -40,7 +40,7 @@ spec:
     spec:
       containers:
         - name: ledger-worker
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/ledger-worker:0.1.1
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/ledger-worker:0.1.2
           ports:
             - name: http
               containerPort: 8080

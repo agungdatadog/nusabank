@@ -47,7 +47,8 @@ public class LedgerService {
     @Transactional
     public void onTransfer(String payload) throws Exception {
         JsonNode e = mapper.readTree(payload);
-        post("payments.transfer.v1", e, text(e, "transfer_id"), PostingRules.transfer(e));
+        var lines = "transfer.received".equals(text(e, "event_type")) ? PostingRules.inbound(e) : PostingRules.transfer(e);
+        post("payments.transfer.v1", e, text(e, "transfer_id"), lines);
     }
 
     @KafkaListener(topics = "biller.payment.v1")

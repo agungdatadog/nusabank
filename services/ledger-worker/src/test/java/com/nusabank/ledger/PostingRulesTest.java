@@ -59,6 +59,19 @@ class PostingRulesTest {
     }
 
     @Test
+    void inboundCreditsTheCustomerFromNostro() {
+        var e = mapper.readTree("""
+                {"event_id":"2f0e7f5e-6f1e-4b5a-9b1d-0d0e0f0a0b0c","event_type":"transfer.received","transfer_id":"i-1",
+                 "rail":"BIFAST","account_number":"5021114721865049","sender_bank_name":"Bank Mandiri",
+                 "sender_name":"BUDI SANTOSO","amount":{"amount":"2500000","currency":"IDR"}}""");
+        var lines = PostingRules.inbound(e);
+        assertTrue(PostingRules.balanced(lines));
+        assertEquals("NOSTRO-BIFAST", lines.get(0).glAccount());
+        assertEquals("5021114721865049", lines.get(1).accountNumber());
+        assertEquals("BI FAST DARI BANK MANDIRI BUDI SANTOSO", lines.get(1).description());
+    }
+
+    @Test
     void derivedIdsAreStable() {
         assertEquals(LedgerService.derived("journal", "abc"), LedgerService.derived("journal", "abc"));
     }

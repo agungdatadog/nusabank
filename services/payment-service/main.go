@@ -121,6 +121,7 @@ func main() {
 		r.Get("/{transferId}", s.getTransfer)
 	})
 	r.Post("/internal/rails/skn/settlements", s.sknSettlement)
+	r.Post("/internal/rails/inbound", s.receiveInbound)
 
 	srv := &http.Server{Addr: ":" + cfg.port, Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
