@@ -1,0 +1,10 @@
+# Keep Cloud Build uploads small: only sources and shared catalog files are needed.
+.git
+.gitignore
+.terraform/
+terraform/
+docs/
+**/node_modules/
+**/dist/
+**/target/
+*.tfplan

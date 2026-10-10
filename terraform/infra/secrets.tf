@@ -80,6 +80,45 @@ resource "google_secret_manager_secret_version" "platform" {
   secret_data = each.value.result
 }
 
+# Shared login for the synthetic customers in catalog/seed/customers.json, and the
+# OTP the simulated SMS gateway "sends". Read them here to log in during a demo.
+resource "random_password" "demo_customer" {
+  length  = 14
+  special = false
+}
+
+resource "random_password" "demo_otp" {
+  length  = 6
+  upper   = false
+  lower   = false
+  special = false
+}
+
+locals {
+  demo_secrets = {
+    "demo-customer-password" = random_password.demo_customer.result
+    "demo-mfa-otp"           = random_password.demo_otp.result
+  }
+}
+
+resource "google_secret_manager_secret" "demo" {
+  for_each = local.demo_secrets
+
+  secret_id = "${var.name_prefix}-${each.key}"
+  labels    = { app = "nusabank" }
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "demo" {
+  for_each = local.demo_secrets
+
+  secret      = google_secret_manager_secret.demo[each.key].id
+  secret_data = each.value
+}
+
 # Secrets created by hand (API keys, RUM, JWT). Values never live in Terraform.
 locals {
   manual_secret_ids = [
@@ -98,6 +137,7 @@ locals {
     [for s in google_secret_manager_secret.db_datadog : s.secret_id],
     [for s in google_secret_manager_secret.db_admin : s.secret_id],
     [for s in google_secret_manager_secret.platform : s.secret_id],
+    [for k in keys(local.demo_secrets) : "${var.name_prefix}-${k}"],
   )
 }
 
@@ -128,5 +168,6 @@ resource "google_secret_manager_secret_iam_member" "secret_reader" {
     google_secret_manager_secret.db_datadog,
     google_secret_manager_secret.db_admin,
     google_secret_manager_secret.platform,
+    google_secret_manager_secret.demo,
   ]
 }

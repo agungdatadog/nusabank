@@ -1,0 +1,20 @@
+# Builds one service image with the repo root as context, so Dockerfiles can COPY
+# shared files such as catalog/seed/. Usage:
+#   gcloud builds submit . --region=asia-southeast2 --config=tools/build/cloudbuild.yaml \
+#     --substitutions=_SERVICE=auth-service,_VERSION=0.1.0
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - services/${_SERVICE}/Dockerfile
+      - -t
+      - ${_REGISTRY}/${_SERVICE}:${_VERSION}
+      - .
+images:
+  - ${_REGISTRY}/${_SERVICE}:${_VERSION}
+substitutions:
+  _REGISTRY: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar
+options:
+  machineType: E2_HIGHCPU_8
+  dynamicSubstitutions: true

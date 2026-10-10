@@ -1,0 +1,28 @@
+{
+  "name": "nusabank-auth-service",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Nusa Bank login, MFA, JWT and onboarding funnel",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"dist/**/*.test.js\"",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "bcryptjs": "3.0.3",
+    "dd-trace": "6.17.0",
+    "hono": "4.13.9",
+    "pg": "8.23.0",
+    "pino": "10.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/pg": "8.23.1",
+    "typescript": "5.9.3"
+  }
+}
