@@ -3,7 +3,6 @@ import { datadogRum } from "@datadog/browser-rum";
 interface RuntimeConfig {
   rumApplicationId?: string;
   rumClientToken?: string;
-  rumRemoteConfigId?: string;
   env?: string;
   version?: string;
 }
@@ -37,7 +36,8 @@ export function initRum() {
       { match: (url: string) => url.startsWith(`${window.location.origin}/api/`), propagatorTypes: ["datadog", "tracecontext"] },
     ],
     traceSampleRate: 100,
-    ...(cfg.rumRemoteConfigId ? { remoteConfigurationId: cfg.rumRemoteConfigId } : {}),
+    // No remoteConfigurationId: this init is the source of truth (config as code). A remote
+    // config id without a published RUM config makes the SDK abort init entirely.
   });
 }
 

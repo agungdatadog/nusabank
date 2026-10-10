@@ -1,0 +1,11 @@
+# HTTP -> HTTPS redirect at the load balancer. Applied only after the load generator
+# moved to HTTPS: a 301 would turn its POSTs into GETs.
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: nusabank
+  namespace: nusabank
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT

@@ -15,8 +15,6 @@ spec:
       remoteRef: { key: indowebinar-rum-application-id }
     - secretKey: RUM_CLIENT_TOKEN
       remoteRef: { key: indowebinar-rum-client-token }
-    - secretKey: RUM_REMOTE_CONFIG_ID
-      remoteRef: { key: indowebinar-rum-remote-config-id }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-frontend
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.1"
+    tags.datadoghq.com/version: "0.1.2"
 spec:
   replicas: 2
   selector:
@@ -44,7 +42,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/frontend:0.1.1
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/frontend:0.1.2
           ports:
             - name: http
               containerPort: 8080

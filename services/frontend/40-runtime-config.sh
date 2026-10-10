@@ -6,7 +6,6 @@ cat > /tmp/config.js <<EOF
 window.NUSABANK_CONFIG = {
   rumApplicationId: "${RUM_APPLICATION_ID:-}",
   rumClientToken: "${RUM_CLIENT_TOKEN:-}",
-  rumRemoteConfigId: "${RUM_REMOTE_CONFIG_ID:-}",
   env: "${DD_ENV:-demo}",
   version: "${DD_VERSION:-unknown}"
 };

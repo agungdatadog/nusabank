@@ -45,9 +45,9 @@ spec:
         - name: k6
           image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.1.1
           env:
-            # Through the public Ingress, so GCP load balancer metrics see real traffic.
+            # Through the public Ingress over HTTPS, so GCP load balancer metrics see real traffic.
             - name: BASE_URL
-              value: http://136.69.32.40
+              value: https://136-69-32-40.sslip.io
             - name: PEAK_JOURNEYS_PER_SECOND
               value: "0.4"
           envFrom:

@@ -1,0 +1,10 @@
+# Google-managed TLS for the demo hostname. sslip.io resolves 136-69-32-40.sslip.io to
+# the static IP, so no domain purchase or DNS zone is needed.
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: nusabank
+  namespace: nusabank
+spec:
+  domains:
+    - 136-69-32-40.sslip.io
