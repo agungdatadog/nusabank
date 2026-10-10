@@ -34,6 +34,36 @@ spec:
         enabled: true
       unixDomainSocketConfig:
         enabled: true
+      # Single Step Instrumentation: tracers are injected, not baked into images.
+      # Opt-in by pod label so Go, Kafka, MongoDB and Redis pods get no init containers.
+      # Go services (payment, partner-mock) are compiled with dd-trace-go instead.
+      instrumentation:
+        enabled: true
+        targets:
+          - name: java
+            namespaceSelector:
+              matchNames: [nusabank]
+            podSelector:
+              matchLabels:
+                nusabank.io/lang: java
+            ddTraceVersions:
+              java: "v1.66.0"
+          - name: node
+            namespaceSelector:
+              matchNames: [nusabank]
+            podSelector:
+              matchLabels:
+                nusabank.io/lang: node
+            ddTraceVersions:
+              js: "v6.17.0"
+          - name: python
+            namespaceSelector:
+              matchNames: [nusabank]
+            podSelector:
+              matchLabels:
+                nusabank.io/lang: python
+            ddTraceVersions:
+              python: "v4.13.3"
     dogstatsd:
       hostPortConfig:
         enabled: true
@@ -67,6 +97,12 @@ spec:
     nodeAgent:
       image:
         tag: "7.83.3"
+      containers:
+        trace-agent:
+          env:
+            # Drop probe spans for every language in one place.
+            - name: DD_APM_IGNORE_RESOURCES
+              value: "^(GET|HEAD) /(healthz|readyz)$"
     clusterAgent:
       image:
         tag: "7.83.3"

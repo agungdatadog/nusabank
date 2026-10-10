@@ -49,9 +49,7 @@ export function bearerClaims(header: string | undefined) {
 }
 
 function tagUser(cif: string, segment?: string) {
-  const span = tracer.scope().active();
-  span?.setTag("usr.id", cif);
-  if (segment) span?.setTag("customer.segment", segment);
+  tracer.setUser(segment ? { id: cif, segment } : { id: cif });
 }
 
 export const auth = new Hono();

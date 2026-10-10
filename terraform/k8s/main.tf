@@ -41,7 +41,14 @@ resource "helm_release" "datadog_operator" {
   version    = var.datadog_operator_chart_version
   namespace  = kubernetes_namespace_v1.operators["datadog"].metadata[0].name
 
+  # Credentials let the operator report its DatadogAgent config to Fleet Automation.
+  # datadog-secret is synced from Secret Manager by k8s/platform/secrets.yaml.
   values = [yamlencode({
+    site                 = "datadoghq.com"
+    clusterName          = var.cluster_name
+    apiKeyExistingSecret = "datadog-secret"
+    appKeyExistingSecret = "datadog-secret"
+    remoteConfiguration  = { enabled = true }
     resources = {
       requests = { cpu = "100m", memory = "256Mi" }
       limits   = { cpu = "500m", memory = "512Mi" }

@@ -60,6 +60,15 @@ still thin. Never take the environment down to "finish a service properly".
 - Do **not** hand-write envs the Admission Controller injects:
   `DD_AGENT_HOST`, `DD_ENV`, `DD_SERVICE`, `DD_VERSION`, `DD_ENTITY_ID`.
 - `DD_TRACE_ANALYTICS_ENABLED` is deprecated — never use it.
+- **APM via Single Step Instrumentation** for Java, Node.js and Python: label the pod
+  `nusabank.io/lang: java|node|python` and configure the tracer with `DD_*` env vars.
+  Never call `init()` and **never add the tracer as a dependency** (`dd-trace`,
+  `dd-java-agent`, `ddtrace`) — SSI backs off when an app bundles its own copy.
+  For custom tags and DogStatsD use the injected global (Node: `globalThis._ddtrace`,
+  see `services/auth-service/src/tracer.ts`; Java: the `dd-trace-api` artifact only).
+  Go services (payment, partner-mock) compile in dd-trace-go; SSI does not cover Go.
+- Health probes are dropped at the Agent (`DD_APM_IGNORE_RESOURCES`); don't filter
+  them per service.
 - Unified service tagging on every service: `service`, `env`, `version`.
 - Dashboards, monitors, SLOs and Synthetics are **code**, in `terraform/datadog/`.
   Nothing configured only through the UI — it must survive a rebuild.

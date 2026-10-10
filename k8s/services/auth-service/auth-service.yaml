@@ -31,7 +31,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-auth
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.1"
+    tags.datadoghq.com/version: "0.2.2"
 spec:
   replicas: 2
   selector:
@@ -42,12 +42,13 @@ spec:
       labels:
         <<: *labels
         admission.datadoghq.com/enabled: "true"
+        nusabank.io/lang: node # opts in to SSI tracer injection
         # Node's DogStatsD client speaks UDP; hostip mode gives it DD_AGENT_HOST:8125.
         admission.datadoghq.com/config.mode: hostip
     spec:
       containers:
         - name: auth-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.1.1
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.2.2
           ports:
             - name: http
               containerPort: 8080
@@ -58,6 +59,10 @@ spec:
               value: auth
             - name: DB_USER
               value: auth
+            - name: DD_LOGS_INJECTION
+              value: "true"
+            - name: DD_RUNTIME_METRICS_ENABLED
+              value: "true"
             - name: DD_PROFILING_ENABLED
               value: "true"
             - name: DD_APPSEC_ENABLED
