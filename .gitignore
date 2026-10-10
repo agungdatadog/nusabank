@@ -1,0 +1,45 @@
+# Secrets — never commit
+*.env
+.env.*
+!.env.example
+secrets/
+*-credentials.json
+*.pem
+*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Java
+target/
+*.class
+
+# Go
+bin/
+
+# macOS / editors
+.DS_Store
+.idea/
+*.swp
+
+# Local
+local/data/
