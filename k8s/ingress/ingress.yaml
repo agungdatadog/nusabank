@@ -1,0 +1,22 @@
+# One public origin for the whole bank: the SPA at /, the APIs under /api/*.
+# Same-origin is what lets RUM attach trace headers to every API call (RUM <-> APM).
+# Static IP indowebinar-frontend-ip comes from terraform/infra.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nusabank
+  namespace: nusabank
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: indowebinar-frontend-ip
+spec:
+  rules:
+    - http:
+        paths:
+          - { path: /api/auth, pathType: Prefix, backend: { service: { name: auth-service, port: { number: 8080 } } } }
+          - { path: /api/onboarding, pathType: Prefix, backend: { service: { name: auth-service, port: { number: 8080 } } } }
+          - { path: /api/promotions, pathType: Prefix, backend: { service: { name: auth-service, port: { number: 8080 } } } }
+          - { path: /api/accounts, pathType: Prefix, backend: { service: { name: account-service, port: { number: 8080 } } } }
+          - { path: /api/fx, pathType: Prefix, backend: { service: { name: account-service, port: { number: 8080 } } } }
+          - { path: /api/transfers, pathType: Prefix, backend: { service: { name: payment-service, port: { number: 8080 } } } }
+          - { path: /, pathType: Prefix, backend: { service: { name: frontend, port: { number: 8080 } } } }

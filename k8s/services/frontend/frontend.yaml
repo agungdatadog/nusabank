@@ -1,0 +1,82 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: frontend
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: frontend
+  data:
+    - secretKey: RUM_APPLICATION_ID
+      remoteRef: { key: indowebinar-rum-application-id }
+    - secretKey: RUM_CLIENT_TOKEN
+      remoteRef: { key: indowebinar-rum-client-token }
+    - secretKey: RUM_REMOTE_CONFIG_ID
+      remoteRef: { key: indowebinar-rum-remote-config-id }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: nusabank
+  labels: &labels
+    app: frontend
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-frontend
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.1"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        # No tracer here; the Admission Controller supplies DD_VERSION / DD_ENV for RUM config.
+        admission.datadoghq.com/enabled: "true"
+    spec:
+      containers:
+        - name: frontend
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/frontend:0.1.1
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef: { name: frontend }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { cpu: 300m, memory: 128Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101 # nginx-unprivileged
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: nusabank
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
