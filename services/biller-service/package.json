@@ -1,0 +1,26 @@
+{
+  "name": "nusabank-biller-service",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Nusa Bank e-wallet top-up, pulsa & data, and bill payments via a PPOB aggregator",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"dist/**/*.test.js\"",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "hono": "4.13.9",
+    "kafkajs": "2.2.4",
+    "mysql2": "3.24.4",
+    "pino": "10.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3"
+  }
+}

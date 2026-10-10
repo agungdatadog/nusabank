@@ -17,7 +17,22 @@ Each layer needs the previous one. Always review the plan before applying.
 | 3 | `k8s/platform` | `kubectl apply -k k8s/platform` | Secret sync, Kafka + topics, MongoDB, Redis, DBM bootstrap jobs |
 | 4 | `k8s/agent` | `kubectl apply -k k8s/agent` | DatadogAgent (APM, logs, CNM, USM, DBM cluster checks, Admission Controller) |
 
+| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, frontend, load-generator |
+| 6 | `k8s/ingress` | `kubectl apply -k k8s/ingress` | Public origin: SPA at `/`, APIs under `/api/*`, managed certificate |
+
 Cluster credentials: `gcloud container clusters get-credentials indowebinar-gke --region asia-southeast2`.
+
+Images are built by Cloud Build with the repo root as context; tags are immutable, so
+bump the version for every build. Gate the deploy on the build's exit code:
+
+```bash
+gcloud builds submit . --region=asia-southeast2 --config=tools/build/cloudbuild.yaml \
+  --substitutions=_SERVICE=biller-service,_VERSION=0.1.1 > build.log 2>&1 \
+  && kubectl apply -k k8s/services/biller-service
+```
+
+A new `/api/<prefix>` needs its Service (with the NEG annotation) running before the
+Ingress path is added; the load balancer takes a few minutes to route it.
 
 Steps 3–4 are separate from Terraform because their custom resources need the CRDs
 that step 2 installs. Dry-run them first: `kubectl apply -k <dir> --dry-run=server`.

@@ -94,8 +94,18 @@ public final class PostingRules {
     public static List<Line> billPayment(JsonNode e) {
         if (!"SUCCESS".equals(text(e, "status"))) return List.of();
         String src = text(e, "source_account_number");
-        String biller = text(e, "biller_code").toUpperCase(Locale.ROOT).replace('-', ' ');
-        String desc = ("EWALLET".equals(text(e, "category")) ? "TOP UP " : "PEMBAYARAN ") + biller;
+        // biller_name / customer_number are display fields; older events only carry the code.
+        String name = text(e, "biller_name");
+        String biller = (name.isEmpty() ? text(e, "biller_code").replace('-', ' ') : name).toUpperCase(Locale.ROOT);
+        String desc = switch (text(e, "category")) {
+            case "EWALLET" -> "TOP UP ";
+            case "PULSA" -> "PULSA ";
+            case "PAKET_DATA" -> "PAKET DATA ";
+            case "PLN_PREPAID" -> "TOKEN ";
+            default -> "PEMBAYARAN ";
+        } + biller;
+        String customer = text(e, "customer_number");
+        if (!customer.isEmpty()) desc += " " + customer;
         BigDecimal amount = money(e, "amount");
         BigDecimal fee = money(e, "fee");
         String hold = text(e, "hold_id").isEmpty() ? null : text(e, "hold_id");

@@ -1932,10 +1932,14 @@ components:
           items: { $ref: '#/components/schemas/Biller' }
     BillerProduct:
       type: object
-      required: [code, name, price]
+      required: [code, name, category, price]
       properties:
         code: { type: string, examples: ['TSEL-50K', 'PLN-100K'] }
         name: { type: string, examples: ['Pulsa Rp50.000', 'Token PLN Rp100.000'] }
+        category:
+          allOf: [{ $ref: '#/components/schemas/BillerCategoryCode' }]
+          description: An operator sells both PULSA and PAKET_DATA products
+        description: { type: string, examples: ['Kuota 15 GB, berlaku 30 hari'] }
         price: { $ref: '#/components/schemas/Money' }
     BillInquiryRequest:
       type: object
@@ -1956,6 +1960,7 @@ components:
         biller_name: { type: string }
         customer_number: { type: string }
         customer_name: { type: string, examples: ['AHMAD FAUZI'] }
+        product_name: { type: string, description: Denominated products only, examples: ['Token PLN Rp100.000'] }
         period: { type: string, description: Billing period for postpaid bills, examples: ['OKT 2026'] }
         amount: { $ref: '#/components/schemas/Money' }
         fee: { $ref: '#/components/schemas/Money' }
@@ -1974,6 +1979,8 @@ components:
         category: { $ref: '#/components/schemas/BillerCategoryCode' }
         customer_number: { type: string }
         customer_name: { type: string }
+        product_name: { type: string, examples: ['Pulsa Rp50.000'] }
+        period: { type: string, examples: ['OKT 2026'] }
         amount: { $ref: '#/components/schemas/Money' }
         fee: { $ref: '#/components/schemas/Money' }
         status: { $ref: '#/components/schemas/BillPaymentStatus' }
@@ -2172,7 +2179,13 @@ components:
             source_account_number: { $ref: '#/components/schemas/AccountNumber' }
             amount: { $ref: '#/components/schemas/Money' }
             fee: { $ref: '#/components/schemas/Money' }
-            hold_id: { type: string, format: uuid }
+            hold_id:
+              type: string
+              format: uuid
+              description: 'Covers amount + fee; consumed by the ledger posting of the amount'
+            biller_name: { type: string, description: 'Shown in mutasi', examples: ['GoPay'] }
+            customer_number: { type: string, description: 'Shown in mutasi', examples: ['085766922089'] }
+            failure_reason: { type: string }
     LoanDisbursementEvent:
       x-kafka-topic: loan.disbursement.v1
       x-kafka-key: application_id

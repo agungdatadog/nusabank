@@ -48,6 +48,32 @@ class PostingRulesTest {
         assertTrue(PostingRules.transfer(transfer("SKN", "FAILED")).isEmpty());
     }
 
+    private JsonNode bill(String category, String status, String extra) {
+        return mapper.readTree("""
+                {"event_id":"2a0e7f5e-6f1e-4b5a-9b1d-0d0e0f0a0b0c","payment_id":"p-1","category":"%s","biller_code":"gopay",
+                 "status":"%s","source_account_number":"5021114721865049","amount":{"amount":"150000","currency":"IDR"},
+                 "fee":{"amount":"1000","currency":"IDR"},"hold_id":"8d6f6a1e-2b3c-4d5e-8f90-a1b2c3d4e5f6"%s}"""
+                .formatted(category, status, extra));
+    }
+
+    @Test
+    void billPaymentDebitsAmountAndFeeAndConsumesTheHold() {
+        var lines = PostingRules.billPayment(bill("EWALLET", "SUCCESS", ",\"biller_name\":\"GoPay\",\"customer_number\":\"085766922089\""));
+        assertTrue(PostingRules.balanced(lines));
+        assertEquals(4, lines.size());
+        assertEquals("TOP UP GOPAY 085766922089", lines.get(0).description());
+        assertEquals("8d6f6a1e-2b3c-4d5e-8f90-a1b2c3d4e5f6", lines.get(0).holdId());
+        assertEquals("PAYABLE-PPOB", lines.get(1).glAccount());
+        assertEquals(new BigDecimal("1000"), lines.get(2).amount());
+    }
+
+    @Test
+    void billPaymentWithoutDisplayFieldsFallsBackToTheCode() {
+        var lines = PostingRules.billPayment(bill("PLN_PREPAID", "SUCCESS", ""));
+        assertEquals("TOKEN GOPAY", lines.get(0).description());
+        assertTrue(PostingRules.billPayment(bill("EWALLET", "FAILED", "")).isEmpty());
+    }
+
     @Test
     void loanDisbursementBalances() {
         var e = mapper.readTree("""

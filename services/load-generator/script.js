@@ -15,7 +15,9 @@ const PEAK_RPS = Number(__ENV.PEAK_JOURNEYS_PER_SECOND || "0.8");
 const seed = JSON.parse(open("./customers.json")).customers;
 const customers = seed.map((c) => ({
   username: c.username,
+  cif: c.cif,
   nik: c.nik,
+  phone: c.phone.replace(/^\+62/, "0"),
   mfa: c.mfa_enabled,
   savings: c.accounts.filter((a) => (a.product_type === "SAVINGS" || a.product_type === "CURRENT") && a.currency === "IDR").map((a) => a.account_number),
   all: c.accounts.map((a) => a.account_number),
@@ -200,6 +202,80 @@ function onboarding() {
   http.post(`${BASE}/api/onboarding/applications/${id}/submit`, null, p);
 }
 
+// ---- Top Up & Tagihan (biller-service) ----
+
+// Stable per-customer numbers: the same household pays the same PLN meter and BPJS VA every month.
+function digitsFor(c, salt, len) {
+  let h = 2166136261;
+  for (const ch of c.cif + salt) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  let out = "";
+  while (out.length < len) { h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0; out += String(h % 10); }
+  return out;
+}
+const OPERATORS = { telkomsel: ["0811", "0812", "0813", "0821", "0822", "0823", "0851", "0852", "0853"], indosat: ["0814", "0815", "0816", "0855", "0856", "0857", "0858"],
+  xl: ["0817", "0818", "0819", "0859", "0877", "0878"], tri: ["0895", "0896", "0897", "0898", "0899"], smartfren: ["0881", "0882", "0883", "0884", "0885", "0886", "0887", "0888", "0889"] };
+const operatorOf = (phone) => Object.keys(OPERATORS).find((op) => OPERATORS[op].includes(phone.slice(0, 4)));
+// Market share, roughly: GoPay and DANA lead, then ShopeePay and OVO.
+const EWALLETS = ["gopay", "gopay", "gopay", "dana", "dana", "dana", "shopeepay", "shopeepay", "ovo", "ovo", "linkaja"];
+
+function payBill(token, c, journey, inquiryBody) {
+  const p = authed(token, journey);
+  const inq = http.post(`${BASE}/api/billers/inquiry`, JSON.stringify(inquiryBody), p);
+  if (inq.status !== 200) return; // unknown customer number etc.: the customer gives up
+  think(2, 6); // checking the name and amount
+  if (Math.random() < 0.05) return; // abandons at confirmation
+  const res = http.post(`${BASE}/api/billers/payments`, JSON.stringify({ inquiry_id: inq.json().inquiry_id, source_account_number: pick(c.savings) }), {
+    headers: { ...p.headers, "Idempotency-Key": uuid() }, tags: p.tags,
+  });
+  check(res, { "bill payment 201": (r) => r.status === 201 });
+  if (res.status === 201 && Math.random() < 0.3) {
+    think(1, 3);
+    http.get(`${BASE}/api/billers/payments?page_size=10`, p);
+  }
+}
+
+function topupEwallet(token, c) {
+  http.get(`${BASE}/api/billers/categories`, authed(token, "topup_ewallet"));
+  think(2, 6);
+  const value = pick(["50000", "100000", "100000", "200000", amount(150_000, 0.8, 10_000)]);
+  payBill(token, c, "topup_ewallet", { biller_code: pick(EWALLETS), customer_number: c.phone, amount: { amount: String(Math.min(2_000_000, Math.max(10_000, Number(value)))), currency: "IDR" } });
+}
+
+function pulsa(token, c) {
+  const p = authed(token, "pulsa_data");
+  http.get(`${BASE}/api/billers/categories`, p);
+  const op = operatorOf(c.phone);
+  if (!op) return;
+  const products = http.get(`${BASE}/api/billers/${op}/products`, p);
+  if (products.status !== 200) return;
+  think(2, 8); // choosing a denomination
+  const wantData = Math.random() < 0.55;
+  const options = products.json().filter((x) => x.category === (wantData ? "PAKET_DATA" : "PULSA"));
+  if (!options.length) return;
+  // Mid-sized denominations sell most.
+  const product = options[Math.min(options.length - 1, Math.floor(Math.abs(Math.random() + Math.random() - 0.6) * options.length))];
+  payBill(token, c, "pulsa_data", { biller_code: op, customer_number: c.phone, product_code: product.code });
+}
+
+function bill(token, c) {
+  const p = authed(token, "bill");
+  http.get(`${BASE}/api/billers/categories`, p);
+  think(2, 6);
+  const r = Math.random();
+  let body;
+  if (r < 0.35) {
+    const tokens = ["PLN-20K", "PLN-50K", "PLN-100K", "PLN-100K", "PLN-200K", "PLN-500K"];
+    http.get(`${BASE}/api/billers/pln/products`, p);
+    body = { biller_code: "pln", customer_number: digitsFor(c, "pln", 12), product_code: pick(tokens) };
+  } else if (r < 0.55) body = { biller_code: "pln", customer_number: digitsFor(c, "pln", 12) };
+  else if (r < 0.72) body = { biller_code: pick(["indihome", "indihome", "biznet", "firstmedia"]), customer_number: digitsFor(c, "net", 12) };
+  else if (r < 0.86) body = { biller_code: "bpjs-kesehatan", customer_number: "88888" + digitsFor(c, "bpjs", 11) };
+  else body = { biller_code: "pdam-jakarta", customer_number: digitsFor(c, "pdam", 8) };
+  // ~2% mistype the customer number into one the biller doesn't know.
+  if (Math.random() < 0.02) body.customer_number = body.customer_number.slice(0, -4) + "0000";
+  payBill(token, c, "bill", body);
+}
+
 const SENDERS = ["BUDI SANTOSO", "SITI RAHMAWATI", "AGUS PRATAMA", "DEWI KUSUMA", "HENDRA WIJAYA", "RINA HIDAYAT", "ANDI NASUTION"];
 const EMPLOYERS = ["PT SINAR MAS TEKNOLOGI", "PT GARUDA LOGISTIK NUSANTARA", "PT MITRA RETAIL INDONESIA", "PT CAHAYA ENERGI PERSADA", "UNIVERSITAS NUSANTARA"];
 
@@ -249,7 +325,10 @@ export default function () {
   if (!token) return;
   const j = Math.random();
   let name;
-  if (j < 0.45) { name = "browse"; group(name, () => browse(token, c)); }
+  if (j < 0.29) { name = "browse"; group(name, () => browse(token, c)); }
+  else if (j < 0.37) { name = "topup_ewallet"; group(name, () => topupEwallet(token, c)); }
+  else if (j < 0.415) { name = "pulsa_data"; group(name, () => pulsa(token, c)); }
+  else if (j < 0.45) { name = "bill"; group(name, () => bill(token, c)); }
   else if (j < 0.57) { name = "transfer_intrabank"; group(name, () => transfer(token, c, "INTRABANK")); }
   else if (j < 0.75) { name = "transfer_bifast"; group(name, () => transfer(token, c, "BIFAST")); }
   else if (j < 0.79) { name = "transfer_skn"; group(name, () => transfer(token, c, "SKN")); }

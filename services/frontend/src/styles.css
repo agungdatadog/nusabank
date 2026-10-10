@@ -78,6 +78,15 @@ button:disabled { opacity: 0.55; cursor: default; }
 .segmented button { background: var(--bg); border: 1px solid var(--line); color: var(--ink); display: flex; flex-direction: column; gap: 0.2rem; text-align: left; font-weight: 500; }
 .segmented button.active { border-color: var(--indigo-600); background: var(--indigo-50); }
 
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.tiles button { background: var(--bg); border: 1px solid var(--line); color: var(--ink); font-weight: 500; padding: 0.8rem 0.6rem; }
+.tiles button.active { border-color: var(--indigo-600); background: var(--indigo-50); color: var(--indigo); }
+.products { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; }
+.products button { background: white; border: 1px solid var(--line); color: var(--ink); text-align: left; display: flex; flex-direction: column; gap: 0.2rem; font-weight: 500; }
+.products button.active { border-color: var(--indigo-600); background: var(--indigo-50); }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.chips button { background: var(--bg); border: 1px solid var(--line); color: var(--indigo); padding: 0.35rem 0.8rem; font-size: 0.85rem; }
+.token { font-size: 1.25rem; font-weight: 700; background: var(--indigo-50); color: var(--indigo); border-radius: 10px; padding: 0.7rem 1rem; }
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .table th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 0.55rem 0.5rem; }
@@ -86,10 +95,12 @@ button:disabled { opacity: 0.55; cursor: default; }
 .pill { border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.78rem; font-weight: 600; }
 .pill.success { background: #e3f5ec; color: var(--ok); }
 .pill.processing { background: #fdf3e1; color: var(--warn); }
+.pill.pending { background: #fdf3e1; color: var(--warn); }
 .pill.failed { background: #fdecea; color: var(--bad); }
 .status { font-size: 1.3rem; font-weight: 700; }
 .status.success { color: var(--ok); }
 .status.processing { color: var(--warn); }
+.status.pending { color: var(--warn); }
 .status.failed { color: var(--bad); }
 .summary { display: grid; grid-template-columns: 9rem 1fr; gap: 0.55rem 1rem; margin: 0; }
 .summary dt { color: var(--muted); }
@@ -109,4 +120,5 @@ button:disabled { opacity: 0.55; cursor: default; }
   .topbar { flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem 1rem; }
   .content { padding: 1rem; }
   .segmented { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: repeat(2, 1fr); }
 }

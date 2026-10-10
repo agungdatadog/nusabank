@@ -44,6 +44,7 @@ export function DashboardPage() {
         </div>
         <div className="quick">
           <Link className="primary button" to="/transfer">Transfer</Link>
+          <Link className="ghost button" to="/bayar">Top Up &amp; Tagihan</Link>
           <Link className="ghost button" to="/transfer/riwayat">Riwayat</Link>
         </div>
       </section>

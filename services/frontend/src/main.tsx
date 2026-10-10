@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth";
 import { Layout } from "./components/Layout";
 import { AccountPage } from "./pages/AccountPage";
+import { BillerPage } from "./pages/BillerPage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoanPage } from "./pages/LoanPage";
@@ -33,6 +34,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/rekening/:accountNumber" element={<AccountPage />} />
             <Route path="/transfer" element={<TransferPage />} />
             <Route path="/transfer/riwayat" element={<TransferHistoryPage />} />
+            <Route path="/bayar" element={<BillerPage />} />
             <Route path="/pinjaman" element={<LoanPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

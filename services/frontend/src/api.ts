@@ -154,3 +154,59 @@ export const formatDateTime = (iso: string) =>
   new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(iso));
 
 export const maskAccount = (n: string) => n.replace(/(\d{4})(?=\d)/g, "$1 ");
+
+// ---- biller-service ----
+
+export type BillerCategoryCode = "EWALLET" | "PULSA" | "PAKET_DATA" | "INTERNET_TV" | "PLN_PREPAID" | "PLN_POSTPAID" | "PDAM" | "BPJS";
+
+export interface Biller {
+  code: string;
+  name: string;
+  customer_number_label: string;
+  open_amount: boolean;
+}
+
+export interface BillerCategory {
+  code: BillerCategoryCode;
+  name: string;
+  billers: Biller[];
+}
+
+export interface BillerProduct {
+  code: string;
+  name: string;
+  category: BillerCategoryCode;
+  description?: string;
+  price: Money;
+}
+
+export interface BillInquiry {
+  inquiry_id: string;
+  biller_code: string;
+  biller_name: string;
+  customer_number: string;
+  customer_name: string;
+  product_name?: string;
+  period?: string;
+  amount: Money;
+  fee: Money;
+  expires_at: string;
+}
+
+export interface BillPayment {
+  id: string;
+  biller_code: string;
+  biller_name: string;
+  category: BillerCategoryCode;
+  customer_number: string;
+  customer_name?: string;
+  product_name?: string;
+  period?: string;
+  amount: Money;
+  fee: Money;
+  status: "SUCCESS" | "FAILED" | "PENDING";
+  biller_reference?: string;
+  token?: string;
+  failure_reason?: string;
+  created_at: string;
+}
