@@ -1,0 +1,93 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: payment-service
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: payment-service
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: indowebinar-db-payment-password }
+    - secretKey: JWT_SECRET
+      remoteRef: { key: indowebinar-jwt-secret }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: nusabank
+  labels: &labels
+    app: payment-service
+    app.kubernetes.io/name: payment-service
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-payment
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        # Go is compiled with dd-trace-go (no SSI label); the Admission Controller still
+        # injects DD_AGENT_HOST / DD_ENV / DD_SERVICE / DD_VERSION / DogStatsD socket.
+        admission.datadoghq.com/enabled: "true"
+    spec:
+      containers:
+        - name: payment-service
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/payment-service:0.1.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: 10.70.0.7 # indowebinar-pg-core (terraform/infra output cloudsql_private_ips)
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_DATA_STREAMS_ENABLED
+              value: "true"
+            - name: DD_DBM_PROPAGATION_MODE
+              value: full
+            - name: DD_RUNTIME_METRICS_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef: { name: payment-service }
+          resources:
+            requests: { cpu: 150m, memory: 96Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: nusabank
+  labels:
+    app: payment-service
+    app.kubernetes.io/name: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -1,0 +1,97 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ledger-worker
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: ledger-worker
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: indowebinar-db-ledger-password }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-worker
+  namespace: nusabank
+  labels: &labels
+    app: ledger-worker
+    app.kubernetes.io/name: ledger-worker
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-ledger
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.1"
+spec:
+  replicas: 2 # consumer group shares 6 partitions per topic
+  selector:
+    matchLabels:
+      app: ledger-worker
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        admission.datadoghq.com/enabled: "true"
+        nusabank.io/lang: java # opts in to SSI tracer injection
+    spec:
+      containers:
+        - name: ledger-worker
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/ledger-worker:0.1.1
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: 10.70.0.7 # indowebinar-pg-core (terraform/infra output cloudsql_private_ips)
+            - name: DB_NAME
+              value: ledger
+            - name: DB_USER
+              value: ledger
+            - name: DD_LOGS_INJECTION
+              value: "true"
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_DATA_STREAMS_ENABLED
+              value: "true"
+            - name: DD_DBM_PROPAGATION_MODE
+              value: full
+          envFrom:
+            - secretRef: { name: ledger-worker }
+          resources:
+            requests: { cpu: 300m, memory: 768Mi }
+            limits: { cpu: "1500m", memory: 1Gi }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger-worker
+  namespace: nusabank
+  labels:
+    app: ledger-worker
+    app.kubernetes.io/name: ledger-worker
+spec:
+  selector:
+    app: ledger-worker
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

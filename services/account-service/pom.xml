@@ -13,7 +13,7 @@
 
   <groupId>com.nusabank</groupId>
   <artifactId>account-service</artifactId>
-  <version>0.1.3</version>
+  <version>0.1.4</version>
   <name>account-service</name>
   <description>Nusa Bank products, balances, transactions, e-Statement, FX and fund holds</description>
 

@@ -2074,9 +2074,16 @@ components:
             source_account_number: { $ref: '#/components/schemas/AccountNumber' }
             destination_bank_code: { $ref: '#/components/schemas/BankCode' }
             destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+            destination_bank_name: { type: string, examples: ['Bank Central Asia (BCA)'] }
+            source_account_name: { type: string, description: 'Shown on the beneficiary side of intrabank mutasi' }
+            destination_account_name: { type: string, description: 'Shown on the sender side of mutasi' }
+            note: { type: string }
             amount: { $ref: '#/components/schemas/Money' }
             fee: { $ref: '#/components/schemas/Money' }
-            hold_id: { type: string, format: uuid }
+            hold_id:
+              type: string
+              format: uuid
+              description: 'Covers amount + fee; consumed by the ledger posting of the principal'
     BillPaymentEvent:
       x-kafka-topic: biller.payment.v1
       x-kafka-key: payment_id

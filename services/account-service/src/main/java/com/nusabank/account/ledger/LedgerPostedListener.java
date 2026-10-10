@@ -59,12 +59,12 @@ public class LedgerPostedListener {
 
         jdbc.sql("""
                 INSERT INTO transactions (account_number, posted_at, type, amount, currency, description, channel,
-                                          reference, balance_after, journal_id)
-                VALUES (:n, now(), :t, :a, :c, :d, :ch, :r, :b, :j)""")
+                                          reference, balance_after, journal_id, event_id)
+                VALUES (:n, now(), :t, :a, :c, :d, :ch, :r, :b, :j, :e)""")
                 .param("n", e.accountNumber()).param("t", e.direction()).param("a", amount)
                 .param("c", account.currency()).param("d", e.description() == null ? e.channel() : e.description())
                 .param("ch", e.channel()).param("r", e.reference())
-                .param("b", account.balance().add(signed)).param("j", e.journalId())
+                .param("b", account.balance().add(signed)).param("j", e.journalId()).param("e", e.eventId())
                 .update();
     }
 }
