@@ -16,4 +16,13 @@ resource "datadog_integration_gcp_sts" "sandbox" {
     # The API echoes an empty list; omitting it trips a provider consistency check.
     filters = []
   }
+
+  # The project is shared by ~130 VMs from other teams. Import only ours into
+  # Infrastructure; Cloud SQL, GKE and other services are not affected by this.
+  monitored_resource_configs = [
+    {
+      type    = "gce_instance"
+      filters = var.gce_instance_filters
+    },
+  ]
 }
