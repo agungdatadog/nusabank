@@ -51,15 +51,15 @@ path on Go, AI on Python.**
 |---------|---------------------|------|------------------|
 | [frontend](services/frontend/) | TypeScript / React 18 + Vite / Nginx + nginx-datadog | Web banking UI | RUM, Session Replay, Error Tracking, Synthetics |
 | [auth-service](services/auth-service/) | Node.js 22 / TypeScript / Hono | Login, JWT, MFA, onboarding funnel | APM, Profiler, Code Security (IAST), AAP |
-| [account-service](services/account-service/) | Java 21 / Spring Boot 3.3 | Products, balances, transactions, e-Statement | APM, DBM, Profiler (JVM), Code Security |
+| [account-service](services/account-service/) | Java 21 / Spring Boot 4.1 | Products, balances, transactions, e-Statement | APM, DBM, Profiler (JVM), Code Security |
 | [payment-service](services/payment-service/) | Go 1.27 / chi | Transfer rails: intrabank, BI FAST (instant), SKN (batch clearing) | APM, Data Streams Monitoring, business metrics per rail & destination bank |
 | [ledger-worker](services/ledger-worker/) | Java 21 / Kafka consumer | Double-entry ledger posting — source of truth for journals | APM, DSM, Profiler |
-| [loan-service](services/loan-service/) | Java 21 / Spring Boot 3.3 | KPR, KKB, KTA — simulation, application, credit check | APM, Profiler (amortisation is CPU-heavy), application funnel |
+| [loan-service](services/loan-service/) | Java 21 / Spring Boot 4.1 | KPR, KKB, KTA — simulation, application, credit check | APM, Profiler (amortisation is CPU-heavy), application funnel |
 | [biller-service](services/biller-service/) | Node.js 22 / TypeScript / Hono | E-wallet top-up, pulsa & data, internet/TV, PLN, PDAM, BPJS — inquiry → pay | APM, partner SLO per biller |
 | [rewards-service](services/rewards-service/) | Node.js 22 / TypeScript / Hono + kafkajs | Loyalty points, event-driven | APM, DSM, eventual consistency |
 | [chat-service](services/chat-service/) | Node.js 22 / TypeScript / Hono | Customer support chat sessions | APM, DBM (MongoDB), AAP |
 | [ai-agent](services/ai-agent/) | Python 3.12 / FastAPI + LangGraph | Multi-step LLM agent (internal only) | LLM Observability, AI Agent Console, AI Guard |
-| [admin-service](services/admin-service/) | Java 21 / Spring Boot 3.3 + Spring Security | Back-office operator console, role-based | APM, Profiler (JVM), SCA |
+| [admin-service](services/admin-service/) | Java 21 / Spring Boot 4.1 + Spring Security | Back-office operator console, role-based | APM, Profiler (JVM), SCA |
 | [partner-mock](services/partner-mock/) | Go 1.27 / chi | Simulates BI FAST, SKN clearing, PPOB biller aggregator, credit bureau, FX rates — **with live-togglable latency and error injection** | The failure-injection toolkit for EP2–EP3 |
 | [load-generator](services/load-generator/) | k6 | Realistic business traffic + controlled spikes | Traffic history for SLOs and baselines |
 
