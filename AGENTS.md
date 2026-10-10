@@ -23,6 +23,12 @@ still thin. Never take the environment down to "finish a service properly".
 - Kafka event payloads are part of the contract too: they live in the same file
   under `components/schemas`, tagged with `x-kafka-topic`.
 
+### Language per service
+- Fixed by the table in [README.md](./README.md#services): Java for core banking,
+  Node.js/TypeScript for channels and integrations, Go only for payment-service and
+  partner-mock, Python only for ai-agent. Don't add Go or Python services without
+  agreement from the project owner.
+
 ### Database per service
 - Each service owns its database and DB user (map in [README.md](./README.md#data-layer)).
   Never query, join or write another service's database — use its API or its events.
@@ -58,6 +64,12 @@ still thin. Never take the environment down to "finish a service properly".
 - Dashboards, monitors, SLOs and Synthetics are **code**, in `terraform/datadog/`.
   Nothing configured only through the UI — it must survive a rebuild.
 - Logs are JSON with `dd.trace_id` / `dd.span_id` correlation.
+
+### GCP
+- Project `datadog-ese-sandbox` is shared. Every GCP object name starts with
+  `indowebinar-` (Terraform `var.name_prefix`), including Secret Manager secrets.
+- IAM is additive only (`*_iam_member`) — never manage the project's full policy.
+- Datadog service names and the K8s namespace stay `nusabank-*` / `nusabank`.
 
 ### Kubernetes
 - Namespace `nusabank`. Labels: `app`, `app.kubernetes.io/name`, `tags.datadoghq.com/{service,env,version}`.

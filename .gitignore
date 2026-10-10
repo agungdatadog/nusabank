@@ -13,7 +13,8 @@ secrets/
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
-.terraform.lock.hcl
+# Plan files embed generated values; the lock file IS committed to pin providers.
+*.tfplan
 
 # Node
 node_modules/

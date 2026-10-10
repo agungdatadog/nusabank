@@ -35,21 +35,31 @@ rebuilding dashboards, SLOs and catalog entries four times.
 ## Services
 
 13 services, 5 languages. The polyglot spread is deliberate: it demonstrates one
-observability platform across the language mix a real bank actually runs.
+observability platform across the language mix a real bank actually runs — **core
+banking on Java, channels and integrations on Node.js, the high-throughput payment
+path on Go, AI on Python.**
+
+| Language | Services |
+|----------|----------|
+| Java 21 | account, ledger, loan, admin |
+| Node.js / TypeScript | auth, biller, rewards, chat (+ frontend) |
+| Go | payment, partner-mock |
+| Python | ai-agent |
+| k6 (JavaScript) | load-generator |
 
 | Service | Language / Framework | Role | Datadog showcase |
 |---------|---------------------|------|------------------|
 | [frontend](services/frontend/) | TypeScript / React 18 + Vite / Nginx + nginx-datadog | Web banking UI | RUM, Session Replay, Error Tracking, Synthetics |
-| [auth-service](services/auth-service/) | Python 3.12 / FastAPI | Login, JWT, MFA, onboarding funnel | APM, Profiler, Code Security (IAST), AAP |
+| [auth-service](services/auth-service/) | Node.js 22 / TypeScript / Hono | Login, JWT, MFA, onboarding funnel | APM, Profiler, Code Security (IAST), AAP |
 | [account-service](services/account-service/) | Java 21 / Spring Boot 3.3 | Products, balances, transactions, e-Statement | APM, DBM, Profiler (JVM), Code Security |
 | [payment-service](services/payment-service/) | Go 1.23 / chi | Transfer rails: intrabank, BI FAST (instant), SKN (batch clearing) | APM, Data Streams Monitoring, business metrics per rail & destination bank |
 | [ledger-worker](services/ledger-worker/) | Java 21 / Kafka consumer | Double-entry ledger posting — source of truth for journals | APM, DSM, Profiler |
 | [loan-service](services/loan-service/) | Java 21 / Spring Boot 3.3 | KPR, KKB, KTA — simulation, application, credit check | APM, Profiler (amortisation is CPU-heavy), application funnel |
-| [biller-service](services/biller-service/) | Node.js 22 / Hono | E-wallet top-up, pulsa & data, internet/TV, PLN, PDAM, BPJS — inquiry → pay | APM, partner SLO per biller |
-| [rewards-service](services/rewards-service/) | Python 3.12 / FastAPI | Loyalty points, event-driven | APM, DSM, eventual consistency |
-| [chat-service](services/chat-service/) | Node.js 22 / Hono | Customer support chat sessions | APM, DBM (MongoDB), AAP |
+| [biller-service](services/biller-service/) | Node.js 22 / TypeScript / Hono | E-wallet top-up, pulsa & data, internet/TV, PLN, PDAM, BPJS — inquiry → pay | APM, partner SLO per biller |
+| [rewards-service](services/rewards-service/) | Node.js 22 / TypeScript / Hono + kafkajs | Loyalty points, event-driven | APM, DSM, eventual consistency |
+| [chat-service](services/chat-service/) | Node.js 22 / TypeScript / Hono | Customer support chat sessions | APM, DBM (MongoDB), AAP |
 | [ai-agent](services/ai-agent/) | Python 3.12 / FastAPI + LangGraph | Multi-step LLM agent (internal only) | LLM Observability, AI Agent Console, AI Guard |
-| [admin-service](services/admin-service/) | Go 1.23 / chi | Back-office operator console | APM, Profiler, SCA |
+| [admin-service](services/admin-service/) | Java 21 / Spring Boot 3.3 + Spring Security | Back-office operator console, role-based | APM, Profiler (JVM), SCA |
 | [partner-mock](services/partner-mock/) | Go 1.23 | Simulates BI FAST, SKN clearing, PPOB biller aggregator, credit bureau, FX rates — **with live-togglable latency and error injection** | The failure-injection toolkit for EP2–EP3 |
 | [load-generator](services/load-generator/) | k6 | Realistic business traffic + controlled spikes | Traffic history for SLOs and baselines |
 
@@ -97,9 +107,9 @@ service's API or a Kafka event — never a cross-database query.
 
 | Instance | Engine | Databases (owner) | Why grouped |
 |----------|--------|-------------------|-------------|
-| `nusabank-pg-core` | Cloud SQL PostgreSQL 15 | `account`, `payment`, `ledger` | Core transaction path |
-| `nusabank-pg-channel` | Cloud SQL PostgreSQL 15 | `auth`, `loan`, `admin` | Channels and back-office, isolated from core |
-| `nusabank-mysql-partner` | Cloud SQL MySQL 8.0 | `biller`, `rewards` | Partner integrations and loyalty |
+| `indowebinar-pg-core` | Cloud SQL PostgreSQL 15 | `account`, `payment`, `ledger` | Core transaction path |
+| `indowebinar-pg-channel` | Cloud SQL PostgreSQL 15 | `auth`, `loan`, `admin` | Channels and back-office, isolated from core |
+| `indowebinar-mysql-partner` | Cloud SQL MySQL 8.4 | `biller`, `rewards` | Partner integrations and loyalty |
 
 | Other store | Deployment | Used by |
 |-------------|-----------|---------|
@@ -174,12 +184,13 @@ Kafka: payments.transfer.v1 / biller.payment.v1 / loan.disbursement.v1
 
 ## Infrastructure
 
-- **GCP project:** `datadog-ese-sandbox`
+- **GCP project:** `datadog-ese-sandbox` — shared with other teams, so every GCP
+  object is named `indowebinar-*` and labelled `app=nusabank`, `group=indowebinar`
 - **Region:** `asia-southeast2` (Jakarta)
 - **GKE Standard** — not Autopilot; Cloud Network Monitoring and Universal Service
   Monitoring need agent privileges Autopilot restricts
 - **Artifact Registry** for all service images
-- **tfstate:** `gs://ctf-tfstate-agung/nusabank-*`
+- **tfstate:** `gs://ctf-tfstate-agung/indowebinar-*`
 - **Datadog:** org on **US1**, `DD_ENV=demo`, namespace `nusabank`
 
 ---

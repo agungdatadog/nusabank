@@ -31,7 +31,7 @@ servers:
         default: account-service
 tags:
   - name: auth-service
-    description: Login, MFA, JWT, onboarding funnel, promotions. Python / FastAPI. DB pg-channel/auth.
+    description: Login, MFA, JWT, onboarding funnel, promotions. Node.js / Hono. DB pg-channel/auth.
   - name: account-service
     description: Products, balances, transactions, e-Statement, FX, fund holds. Java / Spring Boot. DB pg-core/account + Redis.
   - name: payment-service
@@ -43,13 +43,13 @@ tags:
   - name: biller-service
     description: E-wallet top-up, pulsa & data, bills. Node.js / Hono. DB mysql-partner/biller.
   - name: rewards-service
-    description: Loyalty points earned from transaction events. Python / FastAPI. DB mysql-partner/rewards.
+    description: Loyalty points earned from transaction events. Node.js / Hono + kafkajs. DB mysql-partner/rewards.
   - name: chat-service
     description: Customer support chat sessions. Node.js / Hono. DB MongoDB.
   - name: ai-agent
     description: Multi-step LLM agent behind chat-service. Python / LangGraph. Internal only.
   - name: admin-service
-    description: Back-office operator console. Go / chi. DB pg-channel/admin.
+    description: Back-office operator console. Java / Spring Boot. DB pg-channel/admin.
   - name: partner-mock
     description: Simulated external parties plus the failure-injection control plane. Go.
 
