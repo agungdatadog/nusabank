@@ -15,6 +15,7 @@ const PEAK_RPS = Number(__ENV.PEAK_JOURNEYS_PER_SECOND || "0.8");
 const seed = JSON.parse(open("./customers.json")).customers;
 const customers = seed.map((c) => ({
   username: c.username,
+  nik: c.nik,
   mfa: c.mfa_enabled,
   savings: c.accounts.filter((a) => (a.product_type === "SAVINGS" || a.product_type === "CURRENT") && a.currency === "IDR").map((a) => a.account_number),
   all: c.accounts.map((a) => a.account_number),
@@ -141,6 +142,47 @@ function transfer(token, c, rail) {
   }
 }
 
+const LOAN_SHAPES = {
+  KPR: () => { const price = Number(amount(850_000_000, 0.5, 5_000_000)); return { price, dp: Math.round(price * (0.1 + Math.random() * 0.2) / 1e6) * 1e6, tenor: [120, 180, 240][Math.floor(Math.random() * 3)], docs: ["KTP", "NPWP", "SLIP_GAJI", "SERTIFIKAT"] }; },
+  KKB: () => { const price = Number(amount(320_000_000, 0.4, 1_000_000)); return { price, dp: Math.round(price * (0.2 + Math.random() * 0.15) / 1e6) * 1e6, tenor: [24, 36, 48, 60][Math.floor(Math.random() * 4)], docs: ["KTP", "SLIP_GAJI", "SPK_DEALER"] }; },
+  KTA: () => ({ price: Number(amount(40_000_000, 0.6, 1_000_000)), dp: 0, tenor: [12, 24, 36][Math.floor(Math.random() * 3)], docs: ["KTP", "SLIP_GAJI"] }),
+};
+const pickLoan = () => { const r = Math.random(); return r < 0.7 ? "KTA" : r < 0.9 ? "KKB" : "KPR"; };
+const idrMoney = (v) => ({ amount: String(v), currency: "IDR" });
+
+// Customers try the simulator far more often than they apply.
+function loanSimulate(token) {
+  const p = authed(token, "loan_simulate");
+  http.get(`${BASE}/api/loans/products`, p);
+  const code = pickLoan();
+  const runs = 1 + Math.floor(Math.random() * 3); // tweaking price / tenor
+  for (let i = 0; i < runs; i++) {
+    const t = LOAN_SHAPES[code]();
+    check(http.post(`${BASE}/api/loans/simulations`, JSON.stringify({ product_code: code, asset_price: idrMoney(t.price), down_payment: idrMoney(t.dp), tenor_months: t.tenor }), p),
+      { "simulation 200": (r) => r.status === 200 });
+    think(3, 10);
+  }
+}
+
+function loanApply(token, c) {
+  const p = authed(token, "loan_apply");
+  const code = pickLoan();
+  const t = LOAN_SHAPES[code]();
+  const app = http.post(`${BASE}/api/loans/applications`, JSON.stringify({
+    product_code: code, asset_price: idrMoney(t.price), down_payment: idrMoney(t.dp), tenor_months: t.tenor,
+    disbursement_account_number: pick(c.savings), monthly_income: idrMoney(amount(18_000_000, 0.6, 500_000)), employment_type: "KARYAWAN", nik: c.nik,
+  }), p);
+  if (!check(app, { "loan application 201": (r) => r.status === 201 })) return;
+  const id = app.json().id;
+  const upload = { headers: { Authorization: `Bearer ${token}` }, tags: p.tags };
+  for (const doc of t.docs) {
+    think(2, 6);
+    http.post(`${BASE}/api/loans/applications/${id}/documents`, { document_type: doc, file: http.file("contoh dokumen demo Nusa Bank", `${doc.toLowerCase()}.pdf`, "application/pdf") }, upload);
+  }
+  think(2, 5);
+  check(http.post(`${BASE}/api/loans/applications/${id}/submit`, null, p), { "loan decided 200": (r) => r.status === 200 });
+}
+
 function onboarding() {
   const p = { headers: json, tags: { journey: "onboarding" } };
   const product = pick(["SAVINGS", "SAVINGS", "SAVINGS", "CREDIT_CARD", "TIME_DEPOSIT"]);
@@ -207,10 +249,12 @@ export default function () {
   if (!token) return;
   const j = Math.random();
   let name;
-  if (j < 0.5) { name = "browse"; group(name, () => browse(token, c)); }
-  else if (j < 0.62) { name = "transfer_intrabank"; group(name, () => transfer(token, c, "INTRABANK")); }
-  else if (j < 0.8) { name = "transfer_bifast"; group(name, () => transfer(token, c, "BIFAST")); }
-  else if (j < 0.84) { name = "transfer_skn"; group(name, () => transfer(token, c, "SKN")); }
+  if (j < 0.45) { name = "browse"; group(name, () => browse(token, c)); }
+  else if (j < 0.57) { name = "transfer_intrabank"; group(name, () => transfer(token, c, "INTRABANK")); }
+  else if (j < 0.75) { name = "transfer_bifast"; group(name, () => transfer(token, c, "BIFAST")); }
+  else if (j < 0.79) { name = "transfer_skn"; group(name, () => transfer(token, c, "SKN")); }
+  else if (j < 0.86) { name = "loan_simulate"; group(name, () => loanSimulate(token)); }
+  else if (j < 0.865) { name = "loan_apply"; group(name, () => loanApply(token, c)); }
   else { name = "estatement"; group(name, () => statement(token, c)); }
   journeys.add(1, { journey: name });
   if (Math.random() < 0.6) http.post(`${BASE}/api/auth/logout`, null, authed(token, name));

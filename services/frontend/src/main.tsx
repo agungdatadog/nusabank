@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout";
 import { AccountPage } from "./pages/AccountPage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { LoanPage } from "./pages/LoanPage";
 import { LoginPage } from "./pages/LoginPage";
 import { TransferHistoryPage } from "./pages/TransferHistoryPage";
 import { TransferPage } from "./pages/TransferPage";
@@ -32,6 +33,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/rekening/:accountNumber" element={<AccountPage />} />
             <Route path="/transfer" element={<TransferPage />} />
             <Route path="/transfer/riwayat" element={<TransferHistoryPage />} />
+            <Route path="/pinjaman" element={<LoanPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

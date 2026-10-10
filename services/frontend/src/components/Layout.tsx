@@ -24,6 +24,7 @@ export function Layout() {
           <NavLink to="/" end>Beranda</NavLink>
           <NavLink to="/transfer" end>Transfer</NavLink>
           <NavLink to="/transfer/riwayat">Riwayat Transfer</NavLink>
+          <NavLink to="/pinjaman">Pinjaman</NavLink>
         </nav>
         <div className="user">
           <span>{customer?.full_name}</span>
