@@ -168,6 +168,8 @@ spec:
                 gcp:
                   project_id: datadog-ese-sandbox
                   instance_id: indowebinar-mysql-partner
+                collect_schemas:
+                  enabled: true
                 tags:
                   - env:demo
                   - dbinstance:indowebinar-mysql-partner

@@ -12,6 +12,8 @@ data:
     export PGUSER=dbadmin PGCONNECT_TIMEOUT=10
     setup() {
       export PGHOST="$1" PGPASSWORD="$2"; shift 2
+      # API-created users join cloudsqlsuperuser; the monitoring user keeps only pg_monitor.
+      psql -v ON_ERROR_STOP=1 -d postgres -c "REVOKE cloudsqlsuperuser FROM datadog;"
       psql -v ON_ERROR_STOP=1 -d postgres -c "ALTER ROLE datadog INHERIT; GRANT pg_monitor TO datadog;"
       # The explain function runs as its owner (dbadmin). Cloud SQL has no real superuser,
       # so dbadmin joins each service role (the table owners) to be able to EXPLAIN their
@@ -68,13 +70,25 @@ data:
     SET search_path = pg_catalog, pg_temp;
   mysql.sh: |
     set -eu
-    mysql --connect-timeout=10 -h 10.70.0.5 -u dbadmin -p"$MYSQL_PARTNER_ADMIN_PASSWORD" < /sql/mysql.sql
+    sed "s/__DATADOG_PASSWORD__/$MYSQL_PARTNER_DATADOG_PASSWORD/" /sql/mysql.sql \
+      | mysql --connect-timeout=10 -h 10.70.0.5 -u dbadmin -p"$MYSQL_PARTNER_ADMIN_PASSWORD"
     echo "== mysql-partner done"
   # Cloud SQL API-created MySQL users have host '' (matches any host), not '%'.
   mysql.sql: |
+    -- Users created through the Cloud SQL API (Terraform) get cloudsqlsuperuser and broad
+    -- global rights, and dbadmin can't revoke them (no rights on `sys`). Recreating the
+    -- user in SQL gives it nothing, then we grant only what the Datadog guide lists.
+    -- Host stays '' so Terraform's google_sql_user still matches it (same password).
+    DROP USER IF EXISTS 'datadog'@'';
+    CREATE USER 'datadog'@'' IDENTIFIED BY '__DATADOG_PASSWORD__';
     GRANT REPLICATION CLIENT ON *.* TO 'datadog'@'';
     GRANT PROCESS ON *.* TO 'datadog'@'';
     GRANT SELECT ON performance_schema.* TO 'datadog'@'';
+    -- Cap the agent's connections, index metrics, and REFERENCES for schema collection
+    -- (Agent 7.65+), per the Datadog Cloud SQL MySQL guide.
+    ALTER USER 'datadog'@'' WITH MAX_USER_CONNECTIONS 5;
+    GRANT SELECT ON mysql.innodb_index_stats TO 'datadog'@'';
+    GRANT REFERENCES ON *.* TO 'datadog'@'';
     CREATE SCHEMA IF NOT EXISTS datadog;
     GRANT EXECUTE ON datadog.* TO 'datadog'@'';
     GRANT CREATE TEMPORARY TABLES ON datadog.* TO 'datadog'@'';
