@@ -1,0 +1,2134 @@
+openapi: 3.1.0
+info:
+  title: Nusa Bank Platform API
+  version: 0.1.0
+  summary: Single source of truth for every Nusa Bank inter-service contract.
+  description: |
+    Nusa Bank is a fictional Indonesian internet bank built for the Datadog FSI
+    webinar series. This file is the contract for all HTTP APIs and Kafka events.
+    Change it here *before* changing any implementation.
+
+    **Routing.** Each tag is one service. Public paths (`/api/...`) are exposed by
+    the Ingress and routed to the owning service by path prefix. `/internal/...`
+    paths are cluster-only (no Ingress, NetworkPolicy-restricted). Partner paths on
+    `partner-mock` simulate external parties.
+
+    **Conventions.**
+    - Money is a decimal string plus ISO 4217 currency — never a float.
+    - Nusa Bank account numbers are 16 digits.
+    - Timestamps are RFC 3339 in UTC; the frontend renders them in WIB.
+    - Every service also serves `GET /healthz` (liveness) and `GET /readyz`
+      (readiness); they are not repeated per service below.
+    - Errors use the `Error` schema. Downstream failures (502/503) always name
+      the `partner` so the root cause is visible in logs and spans.
+servers:
+  - url: https://nusabank.example
+    description: Public Ingress (placeholder hostname)
+  - url: http://{service}.nusabank.svc.cluster.local:8080
+    description: In-cluster service address
+    variables:
+      service:
+        default: account-service
+tags:
+  - name: auth-service
+    description: Login, MFA, JWT, onboarding funnel, promotions. Python / FastAPI. DB pg-channel/auth.
+  - name: account-service
+    description: Products, balances, transactions, e-Statement, FX, fund holds. Java / Spring Boot. DB pg-core/account + Redis.
+  - name: payment-service
+    description: Transfer rails — intrabank, BI FAST, SKN. Go / chi. DB pg-core/payment.
+  - name: ledger-worker
+    description: Kafka consumer, double-entry journals. Java. DB pg-core/ledger. HTTP is internal read-only.
+  - name: loan-service
+    description: KPR, KKB, KTA — simulation, application, credit check. Java / Spring Boot. DB pg-channel/loan.
+  - name: biller-service
+    description: E-wallet top-up, pulsa & data, bills. Node.js / Hono. DB mysql-partner/biller.
+  - name: rewards-service
+    description: Loyalty points earned from transaction events. Python / FastAPI. DB mysql-partner/rewards.
+  - name: chat-service
+    description: Customer support chat sessions. Node.js / Hono. DB MongoDB.
+  - name: ai-agent
+    description: Multi-step LLM agent behind chat-service. Python / LangGraph. Internal only.
+  - name: admin-service
+    description: Back-office operator console. Go / chi. DB pg-channel/admin.
+  - name: partner-mock
+    description: Simulated external parties plus the failure-injection control plane. Go.
+
+security:
+  - customerJwt: []
+
+paths:
+  # ───────────────────────────── auth-service ─────────────────────────────
+  /api/auth/login:
+    post:
+      tags: [auth-service]
+      operationId: login
+      summary: Username + password; returns tokens or an MFA challenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated, or MFA required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/auth/mfa/verify:
+    post:
+      tags: [auth-service]
+      operationId: verifyMfa
+      summary: Exchange an MFA challenge + OTP for tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfa_token, otp]
+              properties:
+                mfa_token: { type: string }
+                otp: { type: string, pattern: '^\d{6}$', examples: ['482913'] }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/refresh:
+    post:
+      tags: [auth-service]
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/logout:
+    post:
+      tags: [auth-service]
+      operationId: logout
+      responses:
+        '204': { description: Session revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/me:
+    get:
+      tags: [auth-service]
+      operationId: getMe
+      summary: Current customer profile
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/onboarding/applications:
+    post:
+      tags: [auth-service]
+      operationId: startOnboarding
+      summary: Start a new-product application (funnel step `started`)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnboardingStartRequest' }
+      responses:
+        '201':
+          description: Application created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingApplication' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/onboarding/applications/{applicationId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [auth-service]
+      operationId: getOnboarding
+      security: []
+      responses:
+        '200':
+          description: Application
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingApplication' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/onboarding/applications/{applicationId}/ekyc:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    post:
+      tags: [auth-service]
+      operationId: submitEkyc
+      summary: Submit e-KYC data (funnel step `ekyc_submitted`)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nik, birth_date, mother_maiden_name]
+              properties:
+                nik: { type: string, pattern: '^\d{16}$', description: Nomor Induk Kependudukan }
+                birth_date: { type: string, format: date }
+                mother_maiden_name: { type: string }
+      responses:
+        '200':
+          description: Updated application
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingApplication' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/onboarding/applications/{applicationId}/submit:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    post:
+      tags: [auth-service]
+      operationId: submitOnboarding
+      summary: Final submit (funnel step `submitted` → `approved` / `rejected`)
+      security: []
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingApplication' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/promotions:
+    get:
+      tags: [auth-service]
+      operationId: listPromotions
+      security: []
+      responses:
+        '200':
+          description: Active promotions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Promotion' }
+
+  # ──────────────────────────── account-service ────────────────────────────
+  /api/accounts:
+    get:
+      tags: [account-service]
+      operationId: listAccounts
+      summary: All products owned by the customer (My Accounts)
+      responses:
+        '200':
+          description: Products grouped by type
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/accounts/{accountNumber}:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+    get:
+      tags: [account-service]
+      operationId: getAccount
+      responses:
+        '200':
+          description: Account detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/accounts/{accountNumber}/transactions:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+    get:
+      tags: [account-service]
+      operationId: listTransactions
+      summary: My Transactions (mutasi rekening)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: type, in: query, schema: { type: string, enum: [CREDIT, DEBIT] } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Page of transactions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransactionPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/accounts/{accountNumber}/statements:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+    get:
+      tags: [account-service]
+      operationId: listStatements
+      summary: Available monthly e-Statements
+      responses:
+        '200':
+          description: Statement periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/StatementSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/accounts/{accountNumber}/statements/{period}:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+      - name: period
+        in: path
+        required: true
+        schema: { type: string, pattern: '^\d{4}-\d{2}$', examples: ['2026-09'] }
+    get:
+      tags: [account-service]
+      operationId: downloadStatement
+      summary: Render the e-Statement PDF for one month
+      description: Heavy query + PDF render. Home of the EP2 N+1 scenario (OFF by default).
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/fx/rates:
+    get:
+      tags: [account-service]
+      operationId: getFxRates
+      summary: Counter rates for USD and JPY against IDR
+      responses:
+        '200':
+          description: Rates (cached in Redis, sourced from partner-mock)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FxRates' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
+  /internal/accounts/{accountNumber}:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+    get:
+      tags: [account-service]
+      operationId: internalGetAccount
+      summary: Account lookup for other services (owner name, status, currency)
+      security: []
+      responses:
+        '200':
+          description: Account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountRef' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/accounts/{accountNumber}/holds:
+    parameters:
+      - $ref: '#/components/parameters/AccountNumber'
+    post:
+      tags: [account-service]
+      operationId: createHold
+      summary: Reserve funds before a rail or biller is called
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldRequest' }
+      responses:
+        '201':
+          description: Funds reserved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Hold' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Insufficient available balance or account not active
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /internal/holds/{holdId}:
+    parameters:
+      - { name: holdId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [account-service]
+      operationId: releaseHold
+      summary: Release a hold when the rail or biller failed
+      security: []
+      responses:
+        '204': { description: Released }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ──────────────────────────── payment-service ────────────────────────────
+  /api/transfers/banks:
+    get:
+      tags: [payment-service]
+      operationId: listDestinationBanks
+      summary: Destination banks and which rails each supports
+      responses:
+        '200':
+          description: Bank directory
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Bank' }
+
+  /api/transfers/rails:
+    get:
+      tags: [payment-service]
+      operationId: listRails
+      summary: Rail limits, fees and (for SKN) the clearing schedule
+      responses:
+        '200':
+          description: Rails
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rail' }
+
+  /api/transfers/beneficiaries:
+    get:
+      tags: [payment-service]
+      operationId: listBeneficiaries
+      responses:
+        '200':
+          description: Saved beneficiaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Beneficiary' }
+    post:
+      tags: [payment-service]
+      operationId: createBeneficiary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_code, account_number]
+              properties:
+                bank_code: { $ref: '#/components/schemas/BankCode' }
+                account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+                alias: { type: string, maxLength: 40, examples: ['Ibu - BCA'] }
+      responses:
+        '201':
+          description: Saved (beneficiary name resolved via account inquiry)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Beneficiary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
+  /api/transfers/inquiry:
+    post:
+      tags: [payment-service]
+      operationId: transferInquiry
+      summary: Resolve the beneficiary name, fee and limit before confirming
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferInquiryRequest' }
+      responses:
+        '200':
+          description: Inquiry valid for 5 minutes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferInquiry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: Amount exceeds the rail limit, or rail not supported by bank
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
+
+  /api/transfers:
+    get:
+      tags: [payment-service]
+      operationId: listTransfers
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransferStatus' } }
+        - { name: rail, in: query, schema: { $ref: '#/components/schemas/RailCode' } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Page of transfers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, page_size, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Transfer' }
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total: { type: integer }
+    post:
+      tags: [payment-service]
+      operationId: createTransfer
+      summary: Confirm a transfer from a prior inquiry
+      description: |
+        Places a hold on account-service, then calls the rail. Intrabank and BI FAST
+        settle synchronously (`SUCCESS`/`FAILED`). SKN returns `PROCESSING` and
+        settles at the next clearing window. Emits `payments.transfer.v1` on
+        every terminal state.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTransferRequest' }
+      responses:
+        '201':
+          description: Transfer accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Inquiry expired or already used
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
+
+  /api/transfers/{transferId}:
+    parameters:
+      - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [payment-service]
+      operationId: getTransfer
+      responses:
+        '200':
+          description: Transfer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/rails/skn/settlements:
+    post:
+      tags: [payment-service]
+      operationId: receiveSknSettlement
+      summary: Clearing-window callback from the SKN rail (partner-mock)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SknSettlementBatch' }
+      responses:
+        '204': { description: Batch applied }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ───────────────────────────── ledger-worker ─────────────────────────────
+  /internal/ledger/journals:
+    get:
+      tags: [ledger-worker]
+      operationId: listJournals
+      summary: Journals for a business reference (used by admin-service)
+      security: []
+      parameters:
+        - { name: reference, in: query, required: true, schema: { type: string }, description: 'Transfer, bill payment or loan id' }
+      responses:
+        '200':
+          description: Journals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Journal' }
+
+  # ────────────────────────────── loan-service ─────────────────────────────
+  /api/loans/products:
+    get:
+      tags: [loan-service]
+      operationId: listLoanProducts
+      security: []
+      responses:
+        '200':
+          description: KPR, KKB and KTA products with rate terms
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LoanProduct' }
+
+  /api/loans/simulations:
+    post:
+      tags: [loan-service]
+      operationId: simulateLoan
+      summary: Compute installments and the full amortisation schedule
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoanSimulationRequest' }
+      responses:
+        '200':
+          description: Simulation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanSimulation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422':
+          description: Outside product limits (tenor, LTV, principal)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/loans/applications:
+    get:
+      tags: [loan-service]
+      operationId: listLoanApplications
+      responses:
+        '200':
+          description: The customer's applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LoanApplication' }
+    post:
+      tags: [loan-service]
+      operationId: createLoanApplication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoanApplicationRequest' }
+      responses:
+        '201':
+          description: Draft application
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanApplication' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/loans/applications/{applicationId}:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    get:
+      tags: [loan-service]
+      operationId: getLoanApplication
+      responses:
+        '200':
+          description: Application
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanApplication' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/loans/applications/{applicationId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    post:
+      tags: [loan-service]
+      operationId: uploadLoanDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [document_type, file]
+              properties:
+                document_type:
+                  type: string
+                  enum: [KTP, NPWP, SLIP_GAJI, REKENING_KORAN, SERTIFIKAT, SPK_DEALER]
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/loans/applications/{applicationId}/submit:
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    post:
+      tags: [loan-service]
+      operationId: submitLoanApplication
+      summary: Submit for credit check and decision
+      description: Calls the credit bureau on partner-mock. Approved applications are disbursed and emit `loan.disbursement.v1`.
+      responses:
+        '200':
+          description: Application after decision (or `UNDER_REVIEW`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanApplication' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Required documents missing or already submitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
+
+  # ───────────────────────────── biller-service ────────────────────────────
+  /api/billers/categories:
+    get:
+      tags: [biller-service]
+      operationId: listBillerCategories
+      responses:
+        '200':
+          description: Categories with their billers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BillerCategory' }
+
+  /api/billers/{billerCode}/products:
+    parameters:
+      - { name: billerCode, in: path, required: true, schema: { $ref: '#/components/schemas/BillerCode' } }
+    get:
+      tags: [biller-service]
+      operationId: listBillerProducts
+      summary: Denominations (pulsa, data, e-wallet, PLN token). Empty for open-amount bills.
+      responses:
+        '200':
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BillerProduct' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/billers/inquiry:
+    post:
+      tags: [biller-service]
+      operationId: billInquiry
+      summary: Resolve customer name and amount due (first partner call)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BillInquiryRequest' }
+      responses:
+        '200':
+          description: Inquiry valid for 10 minutes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillInquiry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Customer number not found at the biller
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
+
+  /api/billers/payments:
+    post:
+      tags: [biller-service]
+      operationId: payBill
+      summary: Pay a prior inquiry (second partner call)
+      description: Places a hold, pays via the PPOB aggregator, emits `biller.payment.v1`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inquiry_id, source_account_number]
+              properties:
+                inquiry_id: { type: string, format: uuid }
+                source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+      responses:
+        '201':
+          description: Payment result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillPayment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Inquiry expired or already paid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
+    get:
+      tags: [biller-service]
+      operationId: listBillPayments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Payment history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BillPayment' }
+
+  /api/billers/payments/{paymentId}:
+    parameters:
+      - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [biller-service]
+      operationId: getBillPayment
+      responses:
+        '200':
+          description: Payment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillPayment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ──────────────────────────── rewards-service ────────────────────────────
+  /api/rewards:
+    get:
+      tags: [rewards-service]
+      operationId: getRewardsBalance
+      responses:
+        '200':
+          description: Points balance and tier
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RewardsBalance' }
+
+  /api/rewards/history:
+    get:
+      tags: [rewards-service]
+      operationId: listRewardsHistory
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Earn and redeem entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RewardsEntry' }
+
+  /api/rewards/catalog:
+    get:
+      tags: [rewards-service]
+      operationId: listRewardsCatalog
+      responses:
+        '200':
+          description: Redeemable items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RewardItem' }
+
+  /api/rewards/redemptions:
+    post:
+      tags: [rewards-service]
+      operationId: redeemReward
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_code]
+              properties:
+                item_code: { type: string, examples: ['CASHBACK-50K'] }
+      responses:
+        '201':
+          description: Redeemed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RewardsEntry' }
+        '422':
+          description: Not enough points
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ────────────────────────────── chat-service ─────────────────────────────
+  /api/chat/sessions:
+    post:
+      tags: [chat-service]
+      operationId: createChatSession
+      responses:
+        '201':
+          description: New session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/chat/sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [chat-service]
+      operationId: getChatSession
+      responses:
+        '200':
+          description: Session with messages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/chat/sessions/{sessionId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [chat-service]
+      operationId: sendChatMessage
+      summary: Send a customer message; returns the assistant reply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 2000, examples: ['Berapa cicilan KPR 750 juta tenor 15 tahun?'] }
+      responses:
+        '200':
+          description: Assistant reply
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatMessage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
+  # ──────────────────────────────── ai-agent ───────────────────────────────
+  /internal/agent/respond:
+    post:
+      tags: [ai-agent]
+      operationId: agentRespond
+      summary: Run the multi-step agent for one customer turn
+      description: |
+        Tools call public Nusa Bank APIs with the customer's forwarded JWT —
+        the agent never reads databases directly. Tools: account balances,
+        transfer status, loan simulation, bill payment status, FX rates.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentRequest' }
+      responses:
+        '200':
+          description: Agent reply
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
+  # ───────────────────────────── admin-service ─────────────────────────────
+  /api/admin/customers:
+    get:
+      tags: [admin-service]
+      operationId: adminSearchCustomers
+      security:
+        - operatorJwt: []
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 3 }, description: 'Name, CIF, email or account number' }
+      responses:
+        '200':
+          description: Matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Customer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/admin/transfers:
+    get:
+      tags: [admin-service]
+      operationId: adminListTransfers
+      summary: Operations view across customers (proxies payment-service)
+      security:
+        - operatorJwt: []
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransferStatus' } }
+        - { name: rail, in: query, schema: { $ref: '#/components/schemas/RailCode' } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Transfers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/admin/transfers/{transferId}/retry:
+    parameters:
+      - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin-service]
+      operationId: adminRetryTransfer
+      summary: Re-drive a FAILED transfer (EP3 Workflow Automation target)
+      security:
+        - operatorJwt: []
+      responses:
+        '202':
+          description: Retry queued; written to the audit log
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Transfer not in a retryable state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/admin/audit-log:
+    get:
+      tags: [admin-service]
+      operationId: adminAuditLog
+      security:
+        - operatorJwt: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Operator actions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ────────────────────── partner-mock: external parties ───────────────────
+  /bifast/v1/account-inquiry:
+    post:
+      tags: [partner-mock]
+      operationId: bifastAccountInquiry
+      summary: BI FAST — resolve a beneficiary at another bank
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_code, account_number]
+              properties:
+                bank_code: { $ref: '#/components/schemas/BankCode' }
+                account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+      responses:
+        '200':
+          description: Beneficiary found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [account_name]
+                properties:
+                  account_name: { type: string, examples: ['SITI RAHMAWATI'] }
+        '404': { description: Account not found }
+        '503': { description: Rail unavailable (injected) }
+        '504': { description: Rail timeout (injected) }
+
+  /bifast/v1/credit-transfer:
+    post:
+      tags: [partner-mock]
+      operationId: bifastCreditTransfer
+      summary: BI FAST — instant credit transfer
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RailTransferRequest' }
+      responses:
+        '200':
+          description: Settled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RailTransferResult' }
+        '422': { description: Rejected by beneficiary bank }
+        '503': { description: Rail unavailable (injected) }
+        '504': { description: Rail timeout (injected) }
+
+  /skn/v1/transfers:
+    post:
+      tags: [partner-mock]
+      operationId: sknSubmit
+      summary: SKN — queue a credit for the next clearing window
+      description: Settlement arrives later as a batch callback to payment-service `/internal/rails/skn/settlements`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RailTransferRequest' }
+      responses:
+        '202':
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rail_reference, window_id, expected_settlement_at]
+                properties:
+                  rail_reference: { type: string }
+                  window_id: { type: string, examples: ['SKN-20261010-1430'] }
+                  expected_settlement_at: { type: string, format: date-time }
+        '503': { description: Rail unavailable (injected) }
+
+  /ppob/v1/inquiry:
+    post:
+      tags: [partner-mock]
+      operationId: ppobInquiry
+      summary: PPOB aggregator — bill or top-up inquiry
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BillInquiryRequest' }
+      responses:
+        '200':
+          description: Bill found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [customer_name, amount_due]
+                properties:
+                  customer_name: { type: string }
+                  amount_due: { $ref: '#/components/schemas/Money' }
+                  biller_reference: { type: string }
+        '404': { description: Customer number unknown }
+        '503': { description: 'Biller unavailable (injected, per biller or whole aggregator)' }
+        '504': { description: Biller timeout (injected) }
+
+  /ppob/v1/payment:
+    post:
+      tags: [partner-mock]
+      operationId: ppobPayment
+      summary: PPOB aggregator — pay a bill or top up
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [biller_code, customer_number, amount, reference]
+              properties:
+                biller_code: { $ref: '#/components/schemas/BillerCode' }
+                customer_number: { type: string }
+                product_code: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+                reference: { type: string, description: 'Nusa Bank payment id, used for idempotency' }
+      responses:
+        '200':
+          description: Paid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [biller_reference]
+                properties:
+                  biller_reference: { type: string }
+                  token: { type: string, description: PLN prepaid token (20 digits) when applicable }
+        '503': { description: Biller unavailable (injected) }
+        '504': { description: Biller timeout (injected) }
+
+  /credit-bureau/v1/checks:
+    post:
+      tags: [partner-mock]
+      operationId: creditBureauCheck
+      summary: Credit bureau — score and existing obligations for a NIK
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nik, requested_amount]
+              properties:
+                nik: { type: string, pattern: '^\d{16}$' }
+                requested_amount: { $ref: '#/components/schemas/Money' }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditCheck' }
+        '503': { description: Bureau unavailable (injected) }
+        '504': { description: Bureau timeout (injected) }
+
+  /fx/v1/rates:
+    get:
+      tags: [partner-mock]
+      operationId: partnerFxRates
+      security: []
+      responses:
+        '200':
+          description: Rates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FxRates' }
+        '503': { description: FX feed unavailable (injected) }
+
+  # ─────────────────── partner-mock: failure-injection control ─────────────
+  /__scenarios:
+    get:
+      tags: [partner-mock]
+      operationId: listScenarios
+      summary: All failure scenarios and their state (all disabled by default)
+      security: []
+      responses:
+        '200':
+          description: Scenarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Scenario' }
+    delete:
+      tags: [partner-mock]
+      operationId: resetScenarios
+      summary: Disable every scenario — restore the healthy baseline
+      security: []
+      responses:
+        '204': { description: All scenarios disabled }
+
+  /__scenarios/{scenarioId}:
+    parameters:
+      - { name: scenarioId, in: path, required: true, schema: { type: string, examples: ['bifast-timeout'] } }
+    put:
+      tags: [partner-mock]
+      operationId: setScenario
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Scenario' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+components:
+  securitySchemes:
+    customerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Issued by auth-service, signed with the shared `JWT_SECRET`. `sub` is the CIF.
+    operatorJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Same issuer; requires the `operator` role claim.
+
+  parameters:
+    AccountNumber:
+      name: accountNumber
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/AccountNumber' }
+    ApplicationId:
+      name: applicationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated UUID. Replays return the original result.
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Malformed request body or parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Database or unexpected internal failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PartnerError:
+      description: Downstream service or partner returned an error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PartnerUnavailable:
+      description: Downstream service or partner unavailable or timed out
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ─────────────── shared primitives ───────────────
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, examples: ['PARTNER_TIMEOUT', 'INSUFFICIENT_BALANCE', 'VALIDATION_ERROR'] }
+        message: { type: string, examples: ['BI FAST tidak merespons, silakan coba lagi'] }
+        partner:
+          type: string
+          description: Set on 502/503 — which downstream failed
+          examples: ['bifast', 'skn', 'ppob:gopay', 'credit-bureau', 'fx', 'account-service']
+        trace_id: { type: string, description: 'Datadog trace id, for support' }
+    Currency:
+      type: string
+      enum: [IDR, USD, JPY]
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          pattern: '^\d+(\.\d{1,2})?$'
+          description: Decimal string. IDR and JPY carry no fraction.
+          examples: ['1500000']
+        currency: { $ref: '#/components/schemas/Currency' }
+    AccountNumber:
+      type: string
+      pattern: '^\d{16}$'
+      examples: ['5021004417382906']
+    ExternalAccountNumber:
+      type: string
+      pattern: '^\d{6,20}$'
+      description: Account number at another bank (length varies by bank)
+      examples: ['0812345678']
+    BankCode:
+      type: string
+      pattern: '^\d{3}$'
+      description: Bank Indonesia bank code (sandi bank), e.g. 014 BCA, 008 Mandiri, 002 BRI, 009 BNI
+      examples: ['014']
+
+    # ─────────────── auth-service ───────────────
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, examples: ['dewi.lestari'] }
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [mfa_required]
+      properties:
+        mfa_required: { type: boolean }
+        mfa_token: { type: string, description: Present when mfa_required is true }
+        tokens: { $ref: '#/components/schemas/TokenPair' }
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Seconds, examples: [900] }
+    Customer:
+      type: object
+      required: [cif, full_name, email, phone, segment]
+      properties:
+        cif: { type: string, pattern: '^\d{10}$', examples: ['1002847351'] }
+        full_name: { type: string, examples: ['Dewi Lestari'] }
+        email: { type: string, format: email, examples: ['dewi.lestari@mail.example'] }
+        phone: { type: string, examples: ['+6281234567890'] }
+        segment: { type: string, enum: [REGULAR, PRIORITY, PRIVATE] }
+        address: { type: string, examples: ['Jl. Kemang Raya No. 12, Jakarta Selatan 12730'] }
+        mfa_enabled: { type: boolean }
+    OnboardingStartRequest:
+      type: object
+      required: [product_type, full_name, email, phone]
+      properties:
+        product_type: { $ref: '#/components/schemas/ProductType' }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        promotion_code: { type: string }
+    OnboardingApplication:
+      type: object
+      required: [id, product_type, step, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        product_type: { $ref: '#/components/schemas/ProductType' }
+        step:
+          type: string
+          enum: [started, ekyc_submitted, submitted, approved, rejected]
+          description: Funnel step — emitted as `nusabank.onboarding.step.count`
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Promotion:
+      type: object
+      required: [code, title, product_type]
+      properties:
+        code: { type: string, examples: ['TABUNGAN-BARU-2026'] }
+        title: { type: string, examples: ['Bunga 4,5% p.a. untuk Tabungan baru'] }
+        product_type: { $ref: '#/components/schemas/ProductType' }
+        valid_until: { type: string, format: date }
+
+    # ─────────────── account-service ───────────────
+    ProductType:
+      type: string
+      enum: [SAVINGS, CURRENT, CREDIT_CARD, TIME_DEPOSIT, LOAN, INVESTMENT]
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, DORMANT, BLOCKED, CLOSED]
+    Account:
+      type: object
+      required: [account_number, product_type, product_name, currency, balance, available_balance, status]
+      properties:
+        account_number: { $ref: '#/components/schemas/AccountNumber' }
+        product_type: { $ref: '#/components/schemas/ProductType' }
+        product_name: { type: string, examples: ['Tabungan Nusa Harian', 'Giro Nusa Bisnis', 'Tabungan Valas USD'] }
+        currency: { $ref: '#/components/schemas/Currency' }
+        balance: { $ref: '#/components/schemas/Money' }
+        available_balance:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Balance minus active holds
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        opened_at: { type: string, format: date }
+        credit_limit:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: CREDIT_CARD only
+        maturity_date:
+          type: string
+          format: date
+          description: TIME_DEPOSIT only
+        interest_rate:
+          type: string
+          description: Annual rate in percent, e.g. "4.25"
+    AccountList:
+      type: object
+      required: [accounts, total_balance_idr]
+      properties:
+        accounts:
+          type: array
+          items: { $ref: '#/components/schemas/Account' }
+        total_balance_idr:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: All deposit products converted to IDR at the current rate
+    AccountRef:
+      type: object
+      required: [account_number, owner_name, currency, status]
+      properties:
+        account_number: { $ref: '#/components/schemas/AccountNumber' }
+        cif: { type: string }
+        owner_name: { type: string, examples: ['BUDI SANTOSO'] }
+        currency: { $ref: '#/components/schemas/Currency' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+    Transaction:
+      type: object
+      required: [id, posted_at, type, amount, description, balance_after]
+      properties:
+        id: { type: string, format: uuid }
+        posted_at: { type: string, format: date-time }
+        type: { type: string, enum: [CREDIT, DEBIT] }
+        amount: { $ref: '#/components/schemas/Money' }
+        description: { type: string, examples: ['BI FAST ke BCA 0812345678 SITI RAHMAWATI', 'Top Up GoPay 081298765432'] }
+        channel: { type: string, enum: [INTRABANK, BIFAST, SKN, BILLER, LOAN, INTEREST, FEE, REWARDS] }
+        reference: { type: string, description: 'Transfer, bill payment or loan id' }
+        balance_after: { $ref: '#/components/schemas/Money' }
+    TransactionPage:
+      type: object
+      required: [items, page, page_size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Transaction' }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+    StatementSummary:
+      type: object
+      required: [period, opening_balance, closing_balance, transaction_count]
+      properties:
+        period: { type: string, examples: ['2026-09'] }
+        opening_balance: { $ref: '#/components/schemas/Money' }
+        closing_balance: { $ref: '#/components/schemas/Money' }
+        transaction_count: { type: integer }
+    FxRates:
+      type: object
+      required: [base, as_of, rates]
+      properties:
+        base: { type: string, const: IDR }
+        as_of: { type: string, format: date-time }
+        rates:
+          type: array
+          items:
+            type: object
+            required: [currency, buy, sell]
+            properties:
+              currency: { type: string, enum: [USD, JPY] }
+              buy: { type: string, examples: ['16185.00'] }
+              sell: { type: string, examples: ['16385.00'] }
+    HoldRequest:
+      type: object
+      required: [amount, reference, purpose]
+      properties:
+        amount: { $ref: '#/components/schemas/Money' }
+        reference: { type: string, description: Transfer or bill payment id }
+        purpose: { type: string, enum: [TRANSFER, BILL_PAYMENT] }
+    Hold:
+      type: object
+      required: [id, account_number, amount, reference, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        account_number: { $ref: '#/components/schemas/AccountNumber' }
+        amount: { $ref: '#/components/schemas/Money' }
+        reference: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+          description: Auto-released if the ledger never posts. SKN holds outlive the clearing window.
+
+    # ─────────────── payment-service ───────────────
+    RailCode:
+      type: string
+      enum: [INTRABANK, BIFAST, SKN]
+    TransferStatus:
+      type: string
+      enum: [PROCESSING, SUCCESS, FAILED]
+      description: PROCESSING is used by SKN until its clearing window settles
+    Bank:
+      type: object
+      required: [code, name, rails]
+      properties:
+        code: { $ref: '#/components/schemas/BankCode' }
+        name: { type: string, examples: ['Bank Central Asia (BCA)'] }
+        rails:
+          type: array
+          items: { $ref: '#/components/schemas/RailCode' }
+    Rail:
+      type: object
+      required: [code, name, fee, max_amount]
+      properties:
+        code: { $ref: '#/components/schemas/RailCode' }
+        name: { type: string, examples: ['BI FAST'] }
+        fee: { $ref: '#/components/schemas/Money' }
+        max_amount:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: BI FAST Rp250.000.000, SKN Rp1.000.000.000
+        clearing_windows:
+          type: array
+          description: SKN only — today's windows in WIB
+          items:
+            type: object
+            required: [window_id, cutoff_at, settles_at]
+            properties:
+              window_id: { type: string }
+              cutoff_at: { type: string, format: date-time }
+              settles_at: { type: string, format: date-time }
+    Beneficiary:
+      type: object
+      required: [id, bank_code, bank_name, account_number, account_name]
+      properties:
+        id: { type: string, format: uuid }
+        bank_code: { $ref: '#/components/schemas/BankCode' }
+        bank_name: { type: string }
+        account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        account_name: { type: string }
+        alias: { type: string }
+    TransferInquiryRequest:
+      type: object
+      required: [rail, source_account_number, destination_bank_code, destination_account_number, amount]
+      properties:
+        rail: { $ref: '#/components/schemas/RailCode' }
+        source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        destination_bank_code:
+          allOf: [{ $ref: '#/components/schemas/BankCode' }]
+          description: Nusa Bank's own code for INTRABANK
+        destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        amount: { $ref: '#/components/schemas/Money' }
+    TransferInquiry:
+      type: object
+      required: [inquiry_id, rail, destination_bank_code, destination_bank_name, destination_account_number, destination_account_name, amount, fee, expires_at]
+      properties:
+        inquiry_id: { type: string, format: uuid }
+        rail: { $ref: '#/components/schemas/RailCode' }
+        destination_bank_code: { $ref: '#/components/schemas/BankCode' }
+        destination_bank_name: { type: string }
+        destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        destination_account_name: { type: string, examples: ['SITI RAHMAWATI'] }
+        amount: { $ref: '#/components/schemas/Money' }
+        fee: { $ref: '#/components/schemas/Money' }
+        expected_settlement_at:
+          type: string
+          format: date-time
+          description: SKN only — settlement time of the window this would land in
+        expires_at: { type: string, format: date-time }
+    CreateTransferRequest:
+      type: object
+      required: [inquiry_id]
+      properties:
+        inquiry_id: { type: string, format: uuid }
+        note: { type: string, maxLength: 50, examples: ['Bayar kos Oktober'] }
+    Transfer:
+      type: object
+      required: [id, rail, status, source_account_number, destination_bank_code, destination_bank_name, destination_account_number, destination_account_name, amount, fee, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        rail: { $ref: '#/components/schemas/RailCode' }
+        status: { $ref: '#/components/schemas/TransferStatus' }
+        source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        destination_bank_code: { $ref: '#/components/schemas/BankCode' }
+        destination_bank_name: { type: string }
+        destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        destination_account_name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        fee: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+        rail_reference: { type: string }
+        skn_window_id: { type: string }
+        failure_reason: { type: string }
+        created_at: { type: string, format: date-time }
+        settled_at: { type: string, format: date-time }
+    SknSettlementBatch:
+      type: object
+      required: [window_id, settled_at, items]
+      properties:
+        window_id: { type: string }
+        settled_at: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            required: [rail_reference, status]
+            properties:
+              rail_reference: { type: string }
+              status: { type: string, enum: [SUCCESS, FAILED] }
+              failure_reason: { type: string, examples: ['REKENING_TUTUP', 'NAMA_TIDAK_SESUAI'] }
+    RailTransferRequest:
+      type: object
+      required: [reference, source_bank_code, source_account_number, source_account_name, destination_bank_code, destination_account_number, amount]
+      properties:
+        reference: { type: string, description: 'Nusa Bank transfer id, used for idempotency' }
+        source_bank_code: { $ref: '#/components/schemas/BankCode' }
+        source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        source_account_name: { type: string }
+        destination_bank_code: { $ref: '#/components/schemas/BankCode' }
+        destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+        amount: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+    RailTransferResult:
+      type: object
+      required: [rail_reference, settled_at]
+      properties:
+        rail_reference: { type: string }
+        settled_at: { type: string, format: date-time }
+
+    # ─────────────── ledger-worker ───────────────
+    Journal:
+      type: object
+      required: [id, reference, posted_at, entries]
+      properties:
+        id: { type: string, format: uuid }
+        reference: { type: string }
+        source_topic: { type: string }
+        posted_at: { type: string, format: date-time }
+        entries:
+          type: array
+          description: Debits and credits; they always sum to zero per currency
+          items:
+            type: object
+            required: [gl_account, direction, amount]
+            properties:
+              gl_account: { type: string, examples: ['CUST-5021004417382906', 'NOSTRO-BIFAST', 'FEE-INCOME'] }
+              direction: { type: string, enum: [DEBIT, CREDIT] }
+              amount: { $ref: '#/components/schemas/Money' }
+
+    # ─────────────── loan-service ───────────────
+    LoanProductCode:
+      type: string
+      enum: [KPR, KKB, KTA]
+      description: KPR home loan, KKB vehicle loan, KTA unsecured personal loan
+    InterestMethod:
+      type: string
+      enum: [ANNUITY, FLAT]
+    LoanProduct:
+      type: object
+      required: [code, name, interest_method, min_principal, max_principal, min_tenor_months, max_tenor_months]
+      properties:
+        code: { $ref: '#/components/schemas/LoanProductCode' }
+        name: { type: string, examples: ['KPR Nusa Rumah Pertama'] }
+        interest_method: { $ref: '#/components/schemas/InterestMethod' }
+        fixed_rate: { type: string, description: Annual %, examples: ['3.75'] }
+        fixed_period_months: { type: integer, examples: [36] }
+        floating_rate: { type: string, description: Annual % after the fixed period, examples: ['11.50'] }
+        min_principal: { $ref: '#/components/schemas/Money' }
+        max_principal: { $ref: '#/components/schemas/Money' }
+        min_tenor_months: { type: integer }
+        max_tenor_months: { type: integer, examples: [360] }
+        min_down_payment_percent: { type: integer, description: KPR and KKB, examples: [10] }
+        required_documents:
+          type: array
+          items: { type: string }
+    LoanSimulationRequest:
+      type: object
+      required: [product_code, asset_price, tenor_months]
+      properties:
+        product_code: { $ref: '#/components/schemas/LoanProductCode' }
+        asset_price:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Property or vehicle price; for KTA, the requested amount
+        down_payment:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: KPR and KKB only
+        tenor_months: { type: integer, minimum: 6, maximum: 360, examples: [180] }
+        include_schedule: { type: boolean, default: true }
+    LoanSimulation:
+      type: object
+      required: [product_code, principal, tenor_months, first_installment, total_interest, total_payment]
+      properties:
+        product_code: { $ref: '#/components/schemas/LoanProductCode' }
+        principal: { $ref: '#/components/schemas/Money' }
+        tenor_months: { type: integer }
+        first_installment:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Monthly installment during the fixed period
+        floating_installment:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Estimated installment after the fixed period
+        total_interest: { $ref: '#/components/schemas/Money' }
+        total_payment: { $ref: '#/components/schemas/Money' }
+        schedule:
+          type: array
+          items:
+            type: object
+            required: [month, installment, principal, interest, remaining]
+            properties:
+              month: { type: integer }
+              installment: { type: string }
+              principal: { type: string }
+              interest: { type: string }
+              remaining: { type: string }
+    LoanApplicationStatus:
+      type: string
+      enum: [DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, DISBURSED]
+      description: Emitted as `nusabank.loan.application.count` stage
+    LoanApplicationRequest:
+      type: object
+      required: [product_code, asset_price, tenor_months, disbursement_account_number, monthly_income]
+      properties:
+        product_code: { $ref: '#/components/schemas/LoanProductCode' }
+        asset_price: { $ref: '#/components/schemas/Money' }
+        down_payment: { $ref: '#/components/schemas/Money' }
+        tenor_months: { type: integer, minimum: 6, maximum: 360 }
+        disbursement_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        monthly_income: { $ref: '#/components/schemas/Money' }
+        employment_type: { type: string, enum: [KARYAWAN, WIRASWASTA, PROFESIONAL] }
+        collateral_description: { type: string, examples: ['Rumah tapak, Perumahan Citra Raya, Tangerang'] }
+    LoanDocument:
+      type: object
+      required: [id, document_type, uploaded_at]
+      properties:
+        id: { type: string, format: uuid }
+        document_type: { type: string }
+        uploaded_at: { type: string, format: date-time }
+    LoanApplication:
+      type: object
+      required: [id, product_code, status, principal, tenor_months, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        product_code: { $ref: '#/components/schemas/LoanProductCode' }
+        status: { $ref: '#/components/schemas/LoanApplicationStatus' }
+        principal: { $ref: '#/components/schemas/Money' }
+        tenor_months: { type: integer }
+        monthly_installment: { $ref: '#/components/schemas/Money' }
+        disbursement_account_number: { $ref: '#/components/schemas/AccountNumber' }
+        documents:
+          type: array
+          items: { $ref: '#/components/schemas/LoanDocument' }
+        credit_check: { $ref: '#/components/schemas/CreditCheck' }
+        decision_reason: { type: string }
+        created_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time }
+        disbursed_at: { type: string, format: date-time }
+    CreditCheck:
+      type: object
+      required: [score, grade, checked_at]
+      properties:
+        score: { type: integer, minimum: 300, maximum: 900 }
+        grade: { type: string, enum: [A, B, C, D, E] }
+        existing_monthly_obligations: { $ref: '#/components/schemas/Money' }
+        checked_at: { type: string, format: date-time }
+
+    # ─────────────── biller-service ───────────────
+    BillerCategoryCode:
+      type: string
+      enum: [EWALLET, PULSA, PAKET_DATA, INTERNET_TV, PLN_PREPAID, PLN_POSTPAID, PDAM, BPJS]
+    BillerCode:
+      type: string
+      pattern: '^[a-z0-9-]+$'
+      examples: ['gopay', 'ovo', 'shopeepay', 'dana', 'linkaja', 'telkomsel', 'indosat', 'xl', 'tri', 'smartfren', 'indihome', 'biznet', 'firstmedia', 'pln', 'pdam-jakarta', 'bpjs-kesehatan']
+    Biller:
+      type: object
+      required: [code, name, customer_number_label, open_amount]
+      properties:
+        code: { $ref: '#/components/schemas/BillerCode' }
+        name: { type: string, examples: ['GoPay'] }
+        customer_number_label: { type: string, examples: ['Nomor HP', 'ID Pelanggan', 'Nomor Meter', 'Nomor VA Keluarga'] }
+        open_amount:
+          type: boolean
+          description: true for top-ups with a free amount; false when the biller sets the amount
+    BillerCategory:
+      type: object
+      required: [code, name, billers]
+      properties:
+        code: { $ref: '#/components/schemas/BillerCategoryCode' }
+        name: { type: string, examples: ['Top Up E-Wallet'] }
+        billers:
+          type: array
+          items: { $ref: '#/components/schemas/Biller' }
+    BillerProduct:
+      type: object
+      required: [code, name, price]
+      properties:
+        code: { type: string, examples: ['TSEL-50K', 'PLN-100K'] }
+        name: { type: string, examples: ['Pulsa Rp50.000', 'Token PLN Rp100.000'] }
+        price: { $ref: '#/components/schemas/Money' }
+    BillInquiryRequest:
+      type: object
+      required: [biller_code, customer_number]
+      properties:
+        biller_code: { $ref: '#/components/schemas/BillerCode' }
+        customer_number: { type: string, examples: ['081298765432', '532110987654'] }
+        product_code: { type: string, description: Required for denominated products }
+        amount:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Required for open-amount top-ups
+    BillInquiry:
+      type: object
+      required: [inquiry_id, biller_code, biller_name, customer_number, customer_name, amount, fee, expires_at]
+      properties:
+        inquiry_id: { type: string, format: uuid }
+        biller_code: { $ref: '#/components/schemas/BillerCode' }
+        biller_name: { type: string }
+        customer_number: { type: string }
+        customer_name: { type: string, examples: ['AHMAD FAUZI'] }
+        period: { type: string, description: Billing period for postpaid bills, examples: ['OKT 2026'] }
+        amount: { $ref: '#/components/schemas/Money' }
+        fee: { $ref: '#/components/schemas/Money' }
+        expires_at: { type: string, format: date-time }
+    BillPaymentStatus:
+      type: string
+      enum: [SUCCESS, FAILED, PENDING]
+      description: PENDING when the biller times out after accepting — resolved by reconciliation
+    BillPayment:
+      type: object
+      required: [id, biller_code, biller_name, category, customer_number, amount, fee, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        biller_code: { $ref: '#/components/schemas/BillerCode' }
+        biller_name: { type: string }
+        category: { $ref: '#/components/schemas/BillerCategoryCode' }
+        customer_number: { type: string }
+        customer_name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        fee: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/BillPaymentStatus' }
+        biller_reference: { type: string }
+        token: { type: string, description: PLN prepaid token }
+        failure_reason: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # ─────────────── rewards-service ───────────────
+    RewardsBalance:
+      type: object
+      required: [points, tier]
+      properties:
+        points: { type: integer, examples: [12450] }
+        tier: { type: string, enum: [SILVER, GOLD, PLATINUM] }
+        expiring_points: { type: integer }
+        expiring_at: { type: string, format: date }
+    RewardsEntry:
+      type: object
+      required: [id, type, points, description, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [EARN, REDEEM, EXPIRE] }
+        points: { type: integer }
+        description: { type: string, examples: ['Transfer BI FAST Rp1.500.000'] }
+        reference: { type: string }
+        created_at: { type: string, format: date-time }
+    RewardItem:
+      type: object
+      required: [code, name, points_cost]
+      properties:
+        code: { type: string }
+        name: { type: string, examples: ['Cashback Rp50.000'] }
+        points_cost: { type: integer }
+
+    # ─────────────── chat-service / ai-agent ───────────────
+    ChatMessage:
+      type: object
+      required: [id, role, content, created_at]
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [customer, assistant, agent_handoff] }
+        content: { type: string }
+        created_at: { type: string, format: date-time }
+    ChatSession:
+      type: object
+      required: [id, status, created_at]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [OPEN, HANDED_OFF, CLOSED] }
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/ChatMessage' }
+        created_at: { type: string, format: date-time }
+    AgentRequest:
+      type: object
+      required: [session_id, message, customer_token]
+      properties:
+        session_id: { type: string }
+        message: { type: string }
+        customer_token: { type: string, description: 'Customer JWT, forwarded to tool calls' }
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/ChatMessage' }
+    AgentResponse:
+      type: object
+      required: [reply]
+      properties:
+        reply: { type: string }
+        tool_calls:
+          type: array
+          items:
+            type: object
+            required: [tool, status]
+            properties:
+              tool: { type: string, examples: ['simulate_loan', 'get_transfer_status'] }
+              status: { type: string, enum: [ok, error] }
+        handoff_to_human: { type: boolean }
+
+    # ─────────────── admin-service ───────────────
+    AuditEntry:
+      type: object
+      required: [id, operator, action, target, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        operator: { type: string, examples: ['ops.rina'] }
+        action: { type: string, examples: ['TRANSFER_RETRY', 'CUSTOMER_VIEW'] }
+        target: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # ─────────────── partner-mock control plane ───────────────
+    Scenario:
+      type: object
+      required: [id, target, enabled]
+      properties:
+        id: { type: string, examples: ['bifast-timeout', 'ppob-gopay-errors'] }
+        target:
+          type: string
+          enum: [bifast, skn, ppob, credit-bureau, fx]
+        biller_code:
+          allOf: [{ $ref: '#/components/schemas/BillerCode' }]
+          description: ppob only — restrict to one biller; omit to affect the whole aggregator
+        enabled: { type: boolean, default: false }
+        latency_ms: { type: integer, minimum: 0, examples: [8000] }
+        error_rate: { type: number, minimum: 0, maximum: 1, examples: [0.4] }
+        error_status: { type: integer, enum: [500, 503, 504], default: 503 }
+        skn_window_delay_minutes:
+          type: integer
+          description: skn only — hold back settlement callbacks
+        expires_at:
+          type: string
+          format: date-time
+          description: Auto-disable time, so a forgotten scenario cannot poison the baseline
+
+    # ─────────────── Kafka events ───────────────
+    EventEnvelope:
+      type: object
+      required: [event_id, event_type, occurred_at, producer]
+      properties:
+        event_id: { type: string, format: uuid }
+        event_type: { type: string }
+        occurred_at: { type: string, format: date-time }
+        producer: { type: string, examples: ['nusabank-payment'] }
+    TransferEvent:
+      x-kafka-topic: payments.transfer.v1
+      x-kafka-key: transfer_id
+      description: Emitted on every terminal transfer state. Consumers — ledger-worker, rewards-service.
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [transfer_id, cif, rail, status, source_account_number, destination_bank_code, amount, fee]
+          properties:
+            event_type: { const: transfer.completed }
+            transfer_id: { type: string, format: uuid }
+            cif: { type: string }
+            rail: { $ref: '#/components/schemas/RailCode' }
+            status: { type: string, enum: [SUCCESS, FAILED] }
+            source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+            destination_bank_code: { $ref: '#/components/schemas/BankCode' }
+            destination_account_number: { $ref: '#/components/schemas/ExternalAccountNumber' }
+            amount: { $ref: '#/components/schemas/Money' }
+            fee: { $ref: '#/components/schemas/Money' }
+            hold_id: { type: string, format: uuid }
+    BillPaymentEvent:
+      x-kafka-topic: biller.payment.v1
+      x-kafka-key: payment_id
+      description: Emitted on SUCCESS or FAILED. Consumers — ledger-worker, rewards-service.
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [payment_id, cif, category, biller_code, status, source_account_number, amount, fee]
+          properties:
+            event_type: { const: bill_payment.completed }
+            payment_id: { type: string, format: uuid }
+            cif: { type: string }
+            category: { $ref: '#/components/schemas/BillerCategoryCode' }
+            biller_code: { $ref: '#/components/schemas/BillerCode' }
+            status: { type: string, enum: [SUCCESS, FAILED] }
+            source_account_number: { $ref: '#/components/schemas/AccountNumber' }
+            amount: { $ref: '#/components/schemas/Money' }
+            fee: { $ref: '#/components/schemas/Money' }
+            hold_id: { type: string, format: uuid }
+    LoanDisbursementEvent:
+      x-kafka-topic: loan.disbursement.v1
+      x-kafka-key: application_id
+      description: Emitted once when an approved loan is disbursed. Consumer — ledger-worker.
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [application_id, cif, product_code, disbursement_account_number, principal]
+          properties:
+            event_type: { const: loan.disbursed }
+            application_id: { type: string, format: uuid }
+            cif: { type: string }
+            product_code: { $ref: '#/components/schemas/LoanProductCode' }
+            disbursement_account_number: { $ref: '#/components/schemas/AccountNumber' }
+            principal: { $ref: '#/components/schemas/Money' }
+    LedgerPostedEvent:
+      x-kafka-topic: ledger.posted.v1
+      x-kafka-key: account_number
+      description: One event per customer account touched by a journal. Consumer — account-service (balance projection, hold release).
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [journal_id, reference, account_number, direction, amount, channel]
+          properties:
+            event_type: { const: ledger.posted }
+            journal_id: { type: string, format: uuid }
+            reference: { type: string }
+            account_number: { $ref: '#/components/schemas/AccountNumber' }
+            direction: { type: string, enum: [DEBIT, CREDIT] }
+            amount: { $ref: '#/components/schemas/Money' }
+            channel: { type: string, enum: [INTRABANK, BIFAST, SKN, BILLER, LOAN, FEE] }
+            description: { type: string }
+            hold_id:
+              type: string
+              format: uuid
+              description: Present when this posting consumes a hold, so account-service can release it

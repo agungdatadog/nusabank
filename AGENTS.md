@@ -20,13 +20,25 @@ still thin. Never take the environment down to "finish a service properly".
 - All inter-service API contracts live in **`catalog/openapi.yaml`**. Change the
   contract there *before* writing the implementation.
 - Request/response shapes in code must match the spec exactly.
+- Kafka event payloads are part of the contract too: they live in the same file
+  under `components/schemas`, tagged with `x-kafka-topic`.
+
+### Database per service
+- Each service owns its database and DB user (map in [README.md](./README.md#data-layer)).
+  Never query, join or write another service's database — use its API or its events.
+- `ledger-worker` is the source of truth for journals; `account-service` balances are
+  a projection of `ledger.posted.v1`. Reserve funds with an account-service *hold*
+  before calling any rail.
+- Money is a decimal **string** plus ISO currency (`"1500000"`, `"IDR"`) — never a float.
 
 ### This is a demo, and it must look credible on screen
 - Realistic Indonesian data: IDR as primary currency, names, Jakarta addresses,
   16-digit account numbers, plausible balances. Avoid `foo` / `test123` / `Lorem`.
 - Multi-currency products (IDR / USD / JPY) are part of the demo surface.
-- No real bank's branding, product names, logos, colours or marketing copy.
-  `BI FAST` is fine — it is Bank Indonesia's public national payment scheme.
+- No real bank's branding, product names, logos, colours or marketing copy for
+  Nusa Bank itself. `BI FAST` and `SKN` are fine — Bank Indonesia's public schemes.
+- Real destination banks, e-wallets and billers (BCA, GoPay, Telkomsel, PLN…) are
+  shown by name as destinations, without logos. Failure scenarios may name them.
 
 ### Baseline must be healthy
 - The application's **default state is healthy**. All demo failure scenarios are
