@@ -13,6 +13,12 @@ data:
     setup() {
       export PGHOST="$1" PGPASSWORD="$2"; shift 2
       psql -v ON_ERROR_STOP=1 -d postgres -c "ALTER ROLE datadog INHERIT; GRANT pg_monitor TO datadog;"
+      # The explain function runs as its owner (dbadmin). Cloud SQL has no real superuser,
+      # so dbadmin joins each service role (the table owners) to be able to EXPLAIN their
+      # queries — otherwise DBM shows "LACK OF PERMISSIONS" for every plan.
+      for role in "$@"; do
+        psql -v ON_ERROR_STOP=1 -d postgres -c "GRANT \"$role\" TO dbadmin;"
+      done
       for db in postgres "$@"; do
         echo "== $PGHOST/$db"
         psql -v ON_ERROR_STOP=1 -d "$db" -f /sql/postgres-db.sql
@@ -35,6 +41,8 @@ data:
       curs REFCURSOR;
       plan JSON;
     BEGIN
+      SET TRANSACTION READ ONLY;
+
       OPEN curs FOR EXECUTE pg_catalog.concat('EXPLAIN (FORMAT JSON) ', l_query);
       FETCH curs INTO plan;
       CLOSE curs;
@@ -44,6 +52,20 @@ data:
     LANGUAGE 'plpgsql'
     RETURNS NULL ON NULL INPUT
     SECURITY DEFINER;
+    -- Column statistics for the DBM Schemas view (collect_column_statistics).
+    CREATE OR REPLACE FUNCTION datadog.column_statistics()
+    RETURNS TABLE (
+        schemaname name, tablename name, attname name,
+        n_distinct real, avg_width integer, null_frac real,
+        inherited boolean, correlation real, most_common_freqs real[]
+    ) AS
+    $$ SELECT schemaname, tablename, attname, n_distinct, avg_width, null_frac,
+              inherited, correlation, most_common_freqs
+              FROM pg_catalog.pg_stats
+              WHERE schemaname NOT IN ('pg_catalog', 'information_schema'); $$
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp;
   mysql.sh: |
     set -eu
     mysql --connect-timeout=10 -h 10.70.0.5 -u dbadmin -p"$MYSQL_PARTNER_ADMIN_PASSWORD" < /sql/mysql.sql

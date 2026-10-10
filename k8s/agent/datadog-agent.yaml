@@ -125,6 +125,13 @@ spec:
                 gcp:
                   project_id: datadog-ese-sandbox
                   instance_id: indowebinar-pg-core
+                # Schemas view, column stats and per-table metrics (DBM Cloud SQL guide).
+                collect_schemas:
+                  enabled: true
+                collect_column_statistics:
+                  enabled: true
+                relations:
+                  - relation_regex: .*
                 tags:
                   - env:demo
                   - dbinstance:indowebinar-pg-core
@@ -139,6 +146,13 @@ spec:
                 gcp:
                   project_id: datadog-ese-sandbox
                   instance_id: indowebinar-pg-channel
+                # Schemas view, column stats and per-table metrics (DBM Cloud SQL guide).
+                collect_schemas:
+                  enabled: true
+                collect_column_statistics:
+                  enabled: true
+                relations:
+                  - relation_regex: .*
                 tags:
                   - env:demo
                   - dbinstance:indowebinar-pg-channel
