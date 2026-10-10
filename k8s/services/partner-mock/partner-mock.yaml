@@ -1,0 +1,75 @@
+# Single replica on purpose: scenario state and the SKN clearing queue are in memory,
+# and one instance means a toggle applies to every call. A restart resets to healthy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partner-mock
+  namespace: nusabank
+  labels: &labels
+    app: partner-mock
+    app.kubernetes.io/name: partner-mock
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-partner-mock
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: partner-mock
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        admission.datadoghq.com/enabled: "true"
+    spec:
+      containers:
+        - name: partner-mock
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.2
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SKN_WINDOW_MINUTES
+              value: "15"
+            - name: SKN_CUTOFF_MINUTES
+              value: "2"
+            - name: PAYMENT_SERVICE_URL
+              value: http://payment-service.nusabank.svc.cluster.local:8080
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_RUNTIME_METRICS_ENABLED
+              value: "true"
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532 # distroless nonroot; numeric so the kubelet can verify it
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partner-mock
+  namespace: nusabank
+  labels:
+    app: partner-mock
+    app.kubernetes.io/name: partner-mock
+spec:
+  selector:
+    app: partner-mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
