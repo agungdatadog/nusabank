@@ -22,6 +22,8 @@ locals {
       "pg_stat_statements.max"    = "10000"
       "track_activity_query_size" = "4096"
       "track_io_timing"           = "on"
+      # Keep BEGIN/SET/COMMIT out of query metrics (optional step in the DBM Cloud SQL guide).
+      "pg_stat_statements.track_utility" = "off"
     }
     mysql = {
       "performance_schema"                     = "on"
