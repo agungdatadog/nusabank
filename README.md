@@ -58,7 +58,7 @@ path on Go, AI on Python.**
 | [biller-service](services/biller-service/) | Node.js 22 / TypeScript / Hono | E-wallet top-up, pulsa & data, internet/TV, PLN, PDAM, BPJS — inquiry → pay | APM, partner SLO per biller |
 | [rewards-service](services/rewards-service/) | Node.js 22 / TypeScript / Hono + kafkajs | Loyalty points, event-driven | APM, DSM, eventual consistency |
 | [chat-service](services/chat-service/) | Node.js 22 / TypeScript / Hono | Customer support chat sessions | APM, DBM (MongoDB), AAP |
-| [ai-agent](services/ai-agent/) | Python 3.12 / FastAPI + LangGraph | Multi-step LLM agent (internal only) | LLM Observability, AI Agent Console, AI Guard |
+| [ai-agent](services/ai-agent/) | Python 3.13 / FastAPI + LangGraph | Multi-step LLM agent (internal only) | LLM Observability, AI Agent Console, AI Guard |
 | [admin-service](services/admin-service/) | Java 21 / Spring Boot 4.1 + Spring Security | Back-office operator console, role-based | APM, Profiler (JVM), SCA |
 | [partner-mock](services/partner-mock/) | Go 1.27 / chi | Simulates BI FAST, SKN clearing, PPOB biller aggregator, credit bureau, FX rates — **with live-togglable latency and error injection** | The failure-injection toolkit for EP2–EP3 |
 | [load-generator](services/load-generator/) | k6 | Realistic business traffic + controlled spikes | Traffic history for SLOs and baselines |
@@ -117,7 +117,7 @@ service's API or a Kafka event — never a cross-database query.
 | Other store | Deployment | Used by |
 |-------------|-----------|---------|
 | MongoDB | In-cluster StatefulSet + PVC | chat-service |
-| Redis | In-cluster StatefulSet + PVC | account-service (cache), ai-agent (conversation memory) |
+| Redis | In-cluster StatefulSet + PVC | account-service (cache) |
 | Kafka | Strimzi (in-cluster) | see topics below |
 
 | Topic | Producer | Consumers |
@@ -176,7 +176,7 @@ story, and data survives pod rescheduling.
     └──────────────────▶ [chat-service] ──────▶ MongoDB
                                   │  internal only, no Ingress
                                   ▼
-                            [ai-agent] ───────▶ Claude API · Redis
+                            [ai-agent] ───────▶ Claude API · public /api tools
 
 Kafka: payments.transfer.v1 / biller.payment.v1 / loan.disbursement.v1
          ──▶ [ledger-worker] ──▶ pg-core/ledger ──▶ ledger.posted.v1 ──▶ [account-service]
