@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-chat
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.0"
+    tags.datadoghq.com/version: "0.2.0"
 spec:
   replicas: 2
   selector:
@@ -44,7 +44,7 @@ spec:
     spec:
       containers:
         - name: chat-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/chat-service:0.1.0
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/chat-service:0.2.0
           ports:
             - name: http
               containerPort: 8080
@@ -55,9 +55,13 @@ spec:
               value: chat
             - name: MONGODB_USER
               value: chat
-            # Built-in FAQ answers until ai-agent ships; then "agent".
+            # "faq": built-in answers. "agent": ai-agent (LLM, costs tokens) for every browser
+            # session and for LOADGEN_AGENT_SHARE of load-generator sessions.
             - name: CHAT_RESPONDER
-              value: faq
+              value: agent
+            # Load-generator chats stay on FAQ until the token budget is agreed.
+            - name: LOADGEN_AGENT_SHARE
+              value: "0"
             - name: DD_LOGS_INJECTION
               value: "true"
             # Tags each MongoDB command with the trace context: DBM samples link to the APM trace.

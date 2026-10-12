@@ -19,10 +19,13 @@ export interface Message {
   meta?: Record<string, unknown>;
 }
 
+export type Responder = "faq" | "agent";
+
 export interface Session {
   _id: string;
   cif: string;
   status: Status;
+  responder?: Responder; // absent on sessions created before 0.2.0 (they were FAQ)
   messages: Message[];
   created_at: Date;
   updated_at: Date;
@@ -41,9 +44,9 @@ export const ping = () => client.db(config.mongo.database).command({ ping: 1 });
 export const message = (role: Role, content: string, meta?: Record<string, unknown>): Message =>
   ({ id: randomUUID(), role, content, created_at: new Date(), ...(meta ? { meta } : {}) });
 
-export async function createSession(cif: string, greeting: string): Promise<Session> {
+export async function createSession(cif: string, greeting: string, responder: Responder): Promise<Session> {
   const now = new Date();
-  const s: Session = { _id: randomUUID(), cif, status: "OPEN", messages: [message("assistant", greeting)], created_at: now, updated_at: now };
+  const s: Session = { _id: randomUUID(), cif, status: "OPEN", responder, messages: [message("assistant", greeting)], created_at: now, updated_at: now };
   await sessions.insertOne(s);
   return s;
 }

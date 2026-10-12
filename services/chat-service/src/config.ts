@@ -16,6 +16,9 @@ export const config = {
   // "faq": built-in intent responder (until ai-agent ships). "agent": ai-agent answers,
   // and its failures surface as 502s naming the partner — the EP4 story.
   responder: (process.env.CHAT_RESPONDER ?? "faq") as "faq" | "agent",
+  // With responder=agent: the share of load-generator (k6) sessions sent to ai-agent. Real
+  // browsers always get ai-agent; synthetic traffic is sampled to bound LLM token spend.
+  loadgenAgentShare: Number(process.env.LOADGEN_AGENT_SHARE ?? 1),
   aiAgentUrl: process.env.AI_AGENT_URL ?? "http://ai-agent.nusabank.svc.cluster.local:8080",
   agentTimeoutMs: Number(process.env.AGENT_TIMEOUT_MS ?? 30000),
   maxMessagesPerSession: 200,

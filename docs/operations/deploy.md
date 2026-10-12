@@ -16,7 +16,7 @@ Each layer needs the previous one. Always review the plan before applying.
 | 2 | `terraform/k8s` | `terraform -chdir=terraform/k8s plan -out=k8s.tfplan` → `apply k8s.tfplan` | Namespaces, Datadog Operator, External Secrets, Strimzi, `external-secrets` KSA |
 | 3 | `k8s/platform` | `kubectl apply -k k8s/platform` | Secret sync, Kafka + topics, MongoDB, Redis, DBM bootstrap jobs, MongoDB users (`mongo-bootstrap`) |
 | 4 | `k8s/agent` | `kubectl apply -k k8s/agent` | DatadogAgent (APM, logs, CNM, USM, DBM cluster checks, Admission Controller) |
-| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, rewards, chat, frontend, load-generator |
+| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, rewards, chat, ai-agent, frontend, load-generator |
 | 6 | `k8s/ingress` | `kubectl apply -k k8s/ingress` | Public origin: SPA at `/`, APIs under `/api/*`, managed certificate |
 
 Cluster credentials: `gcloud container clusters get-credentials indowebinar-gke --region asia-southeast2`.
@@ -79,6 +79,14 @@ Verify checks:
 P=$(kubectl get pods -n datadog -l agent.datadoghq.com/component=cluster-checks-runner -o name | head -1)
 kubectl exec -n datadog $P -- agent status | grep -E "Instance ID: (postgres|mysql)"
 ```
+
+## ai-agent cost control
+
+ai-agent calls Claude (`ANTHROPIC_MODEL`, Haiku by default) and spends tokens on every turn.
+chat-service decides per session: with `CHAT_RESPONDER=agent`, browser sessions always use
+ai-agent, and `LOADGEN_AGENT_SHARE` (0–1) sets the share of load-generator chats that do.
+`0` keeps synthetic chats on the built-in FAQ (no token spend); token usage per model is
+visible in LLM Observability (`ml_app:nusabank-assistant`).
 
 ## Safety
 

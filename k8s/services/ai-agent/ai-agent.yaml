@@ -1,0 +1,106 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ai-agent
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: ai-agent
+  data:
+    - secretKey: ANTHROPIC_API_KEY
+      remoteRef: { key: indowebinar-anthropic-api-key }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: nusabank
+  labels: &labels
+    app: ai-agent
+    app.kubernetes.io/name: ai-agent
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-ai-agent
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.3"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        admission.datadoghq.com/enabled: "true"
+        nusabank.io/lang: python # opts in to SSI tracer injection
+    spec:
+      containers:
+        - name: ai-agent
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/ai-agent:0.1.3
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Haiku keeps the always-on demo traffic cheap; EP4 can switch models here.
+            - name: ANTHROPIC_MODEL
+              value: claude-haiku-5-5
+            - name: AGENT_MAX_STEPS
+              value: "8"
+            # LLM Observability through the Agent (no agentless API key in the pod).
+            - name: DD_LLMOBS_ENABLED
+              value: "true"
+            - name: DD_LLMOBS_ML_APP
+              value: nusabank-assistant
+            - name: DD_LLMOBS_AGENTLESS_ENABLED
+              value: "false"
+            - name: DD_SITE
+              value: datadoghq.com
+            - name: DD_LOGS_INJECTION
+              value: "true"
+            - name: DD_RUNTIME_METRICS_ENABLED
+              value: "true"
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_APPSEC_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef: { name: ai-agent }
+          resources:
+            requests: { cpu: 200m, memory: 384Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001 # the image's "agent" user
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Cluster-internal only (chat-service is the caller): no NEG, no Ingress path.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent
+  namespace: nusabank
+  labels:
+    app: ai-agent
+    app.kubernetes.io/name: ai-agent
+spec:
+  selector:
+    app: ai-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
