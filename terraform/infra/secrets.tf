@@ -54,9 +54,10 @@ resource "google_secret_manager_secret_version" "db_admin" {
   secret_data = random_password.dbadmin[each.key].result
 }
 
-# In-cluster stores (MongoDB for chat-service, Redis for cache and agent memory).
+# In-cluster stores (MongoDB for chat-service, Redis for cache and agent memory). The
+# mongodb-chat / mongodb-datadog users are created by k8s/platform/mongo-bootstrap.yaml.
 resource "random_password" "platform" {
-  for_each = toset(["mongodb-root", "redis"])
+  for_each = toset(["mongodb-root", "mongodb-chat", "mongodb-datadog", "redis"])
 
   length  = 32
   special = false

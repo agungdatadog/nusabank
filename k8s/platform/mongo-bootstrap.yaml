@@ -1,0 +1,67 @@
+# Idempotent MongoDB setup: the chat-service user (database per service) and the DBM
+# monitoring user, per Datadog's self-hosted MongoDB DBM guide. Re-run with
+#   kubectl delete job -n nusabank -l app=mongo-bootstrap && kubectl apply -k k8s/platform
+# Also re-run after MongoDB restarts: query stats sampling is set at runtime so that
+# enabling it never needed a database restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongo-bootstrap
+  namespace: nusabank
+data:
+  bootstrap.js: |
+    const admin = db.getSiblingDB("admin");
+    function upsertUser(name, pwd, roles) {
+      if (admin.getUser(name)) {
+        admin.updateUser(name, { pwd, roles });
+        print(`updated ${name}`);
+      } else {
+        admin.createUser({ user: name, pwd, roles });
+        print(`created ${name}`);
+      }
+    }
+    // chat-service owns database `chat` and nothing else.
+    upsertUser("chat", process.env.MONGODB_CHAT_PASSWORD, [{ role: "readWrite", db: "chat" }]);
+    // DBM: read on admin + local, clusterMonitor, and read on each monitored database.
+    upsertUser("datadog", process.env.MONGODB_DATADOG_PASSWORD, [
+      { role: "read", db: "admin" },
+      { role: "read", db: "local" },
+      { role: "clusterMonitor", db: "admin" },
+      { role: "read", db: "chat" },
+    ]);
+    // Query metrics on MongoDB 8.0.20+ (Datadog DBM guide).
+    printjson(admin.runCommand({ setParameter: 1, internalQueryStatsSampleRate: 1.0 }));
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-bootstrap
+  namespace: nusabank
+  labels:
+    app: mongo-bootstrap
+    app.kubernetes.io/name: mongo-bootstrap
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: mongo-bootstrap
+        app.kubernetes.io/name: mongo-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mongosh
+          image: mongo:8.0.30
+          command: ["sh", "-c"]
+          args:
+            - mongosh --quiet "mongodb://root:${MONGODB_ROOT_PASSWORD}@mongodb.nusabank.svc.cluster.local:27017/admin" /scripts/bootstrap.js
+          envFrom:
+            - secretRef: { name: platform-credentials }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 300m, memory: 256Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: scripts
+          configMap: { name: mongo-bootstrap }

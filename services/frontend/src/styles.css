@@ -93,6 +93,17 @@ button:disabled { opacity: 0.55; cursor: default; }
 .tier.platinum { background: #e6e4f7; color: var(--indigo); }
 .progress { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
 .progress > div { height: 100%; background: var(--coral); }
+.chat-fab { position: fixed; right: 1.5rem; bottom: 1.5rem; box-shadow: 0 8px 24px rgba(46, 42, 133, 0.25); z-index: 20; }
+.chat-panel { position: fixed; right: 1.5rem; bottom: 1.5rem; width: min(380px, calc(100vw - 2rem)); height: min(560px, calc(100vh - 3rem));
+  display: flex; flex-direction: column; gap: 0.6rem; padding: 1rem; box-shadow: 0 12px 36px rgba(29, 27, 51, 0.2); z-index: 20; }
+.chat-head { display: flex; justify-content: space-between; align-items: center; }
+.chat-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+.bubble { max-width: 85%; padding: 0.55rem 0.8rem; border-radius: 12px; font-size: 0.9rem; line-height: 1.4; white-space: pre-wrap; }
+.bubble.customer { align-self: flex-end; background: var(--indigo); color: white; border-bottom-right-radius: 4px; }
+.bubble.assistant { align-self: flex-start; background: var(--bg); border-bottom-left-radius: 4px; }
+.bubble.agent_handoff { align-self: flex-start; background: #fdf3e1; color: var(--warn); }
+.chat-foot { display: flex; gap: 0.5rem; align-items: center; }
+.chat-foot input { flex: 1; }
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .table th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 0.55rem 0.5rem; }

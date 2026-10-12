@@ -237,3 +237,19 @@ export interface RewardItem {
   description?: string;
   points_cost: number;
 }
+
+// ---- chat-service ----
+
+export interface ChatMessage {
+  id: string;
+  role: "customer" | "assistant" | "agent_handoff";
+  content: string;
+  created_at: string;
+}
+
+export interface ChatSession {
+  id: string;
+  status: "OPEN" | "HANDED_OFF" | "CLOSED";
+  messages?: ChatMessage[];
+  created_at: string;
+}

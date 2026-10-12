@@ -173,6 +173,32 @@ spec:
                 tags:
                   - env:demo
                   - dbinstance:indowebinar-mysql-partner
+          # In-cluster MongoDB (chat-service), per the DBM self-hosted MongoDB guide.
+          # Users and query stats sampling come from k8s/platform/mongo-bootstrap.yaml.
+          mongo.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - dbm: true
+                hosts:
+                  - mongodb.nusabank.svc.cluster.local:27017
+                username: datadog
+                password: ENC[k8s_secret@datadog/datadog-dbm/mongodb]
+                options:
+                  authSource: admin
+                tls: false # cluster-internal; no TLS configured on this mongod
+                cluster_name: nusabank-mongodb
+                reported_database_hostname: mongodb.nusabank
+                additional_metrics: ["metrics.commands", "tcmalloc", "top", "collection"]
+                collections_indexes_stats: true
+                database_autodiscovery:
+                  enabled: true
+                  include: ["^chat$"]
+                query_metrics:
+                  enabled: true
+                tags:
+                  - env:demo
+                  - dbinstance:nusabank-mongodb
     clusterChecksRunner:
       image:
         tag: "7.83.3"

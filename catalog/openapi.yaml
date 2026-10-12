@@ -992,6 +992,7 @@ paths:
       tags: [chat-service]
       operationId: sendChatMessage
       summary: Send a customer message; returns the assistant reply
+      description: Answered by ai-agent, or by chat-service's built-in FAQ responder until ai-agent is enabled (CHAT_RESPONDER).
       requestBody:
         required: true
         content:
@@ -1009,6 +1010,11 @@ paths:
               schema: { $ref: '#/components/schemas/ChatMessage' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Session already handed off or closed — start a new one
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '502': { $ref: '#/components/responses/PartnerError' }
 
   # ──────────────────────────────── ai-agent ───────────────────────────────

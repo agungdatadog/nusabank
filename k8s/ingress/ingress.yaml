@@ -24,4 +24,5 @@ spec:
           - { path: /api/transfers, pathType: Prefix, backend: { service: { name: payment-service, port: { number: 8080 } } } }
           - { path: /api/billers, pathType: Prefix, backend: { service: { name: biller-service, port: { number: 8080 } } } }
           - { path: /api/rewards, pathType: Prefix, backend: { service: { name: rewards-service, port: { number: 8080 } } } }
+          - { path: /api/chat, pathType: Prefix, backend: { service: { name: chat-service, port: { number: 8080 } } } }
           - { path: /, pathType: Prefix, backend: { service: { name: frontend, port: { number: 8080 } } } }

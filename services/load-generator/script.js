@@ -293,6 +293,31 @@ function rewards(token) {
   check(res, { "redemption 201": (r) => r.status === 201 });
 }
 
+// Support chat: a few questions per session, the way customers actually type them.
+const CHAT_QUESTIONS = [
+  "biaya transfer bi fast berapa?", "Berapa limit transfer BI FAST per transaksi?", "kapan jadwal kliring SKN",
+  "transfer ke sesama nusa bank gratis?", "Berapa cicilan KPR 750 juta tenor 15 tahun?", "syarat pengajuan KTA apa saja",
+  "cara top up gopay", "top up OVO minimal berapa", "token listrik PLN saya belum masuk", "bayar BPJS kesehatan dimana",
+  "poin saya bisa ditukar apa saja?", "cara download e-statement", "jam operasional cs", "halo selamat siang",
+  "akun saya terkunci tidak bisa login", "terima kasih",
+];
+const CHAT_HANDOFF = ["saya mau bicara dengan petugas", "tolong blokir kartu saya, hilang", "ada transaksi mencurigakan di rekening saya"];
+
+function chat(token) {
+  const p = authed(token, "chat");
+  const s = http.post(`${BASE}/api/chat/sessions`, null, p);
+  if (!check(s, { "chat session 201": (r) => r.status === 201 })) return;
+  const id = s.json().id;
+  const turns = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < turns; i++) {
+    think(4, 15); // typing
+    const content = Math.random() < 0.06 ? pick(CHAT_HANDOFF) : pick(CHAT_QUESTIONS);
+    const r = http.post(`${BASE}/api/chat/sessions/${id}/messages`, JSON.stringify({ content }), p);
+    check(r, { "chat reply 200": (x) => x.status === 200 });
+    if (r.status !== 200 || r.json().role === "agent_handoff") break;
+  }
+}
+
 const SENDERS = ["BUDI SANTOSO", "SITI RAHMAWATI", "AGUS PRATAMA", "DEWI KUSUMA", "HENDRA WIJAYA", "RINA HIDAYAT", "ANDI NASUTION"];
 const EMPLOYERS = ["PT SINAR MAS TEKNOLOGI", "PT GARUDA LOGISTIK NUSANTARA", "PT MITRA RETAIL INDONESIA", "PT CAHAYA ENERGI PERSADA", "UNIVERSITAS NUSANTARA"];
 
@@ -342,7 +367,8 @@ export default function () {
   if (!token) return;
   const j = Math.random();
   let name;
-  if (j < 0.26) { name = "browse"; group(name, () => browse(token, c)); }
+  if (j < 0.23) { name = "browse"; group(name, () => browse(token, c)); }
+  else if (j < 0.26) { name = "chat"; group(name, () => chat(token)); }
   else if (j < 0.29) { name = "rewards"; group(name, () => rewards(token)); }
   else if (j < 0.37) { name = "topup_ewallet"; group(name, () => topupEwallet(token, c)); }
   else if (j < 0.415) { name = "pulsa_data"; group(name, () => pulsa(token, c)); }

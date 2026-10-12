@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { ChatWidget } from "./ChatWidget";
 
 export function Logo() {
   return (
@@ -37,6 +38,7 @@ export function Layout() {
       <main className="content">
         <Outlet />
       </main>
+      <ChatWidget />
       <footer className="footer">Nusa Bank adalah bank fiktif untuk demonstrasi. Data nasabah bersifat sintetis.</footer>
     </div>
   );

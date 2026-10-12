@@ -98,6 +98,7 @@ tags, to keep custom-metric cardinality bounded.
 | `nusabank.onboarding.step.count` | count | `product`, `step` |
 | `nusabank.rewards.points.earned` | count (points) | `source` (transfer / bill), `segment` |
 | `nusabank.rewards.redemption.count` / `.points.redeemed` | count | `item` |
+| `nusabank.chat.session.count` / `.message.count` / `.handoff.count` | count | `responder` (faq / agent), `intent`, `handoff` |
 
 ---
 

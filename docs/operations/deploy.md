@@ -14,9 +14,9 @@ Each layer needs the previous one. Always review the plan before applying.
 |---|-------|---------|---------|
 | 1 | `terraform/infra` | `terraform -chdir=terraform/infra plan -out=infra.tfplan` → `apply infra.tfplan` | VPC, NAT, GKE, 3× Cloud SQL, Artifact Registry, generated passwords in Secret Manager, Workload Identity GSA |
 | 2 | `terraform/k8s` | `terraform -chdir=terraform/k8s plan -out=k8s.tfplan` → `apply k8s.tfplan` | Namespaces, Datadog Operator, External Secrets, Strimzi, `external-secrets` KSA |
-| 3 | `k8s/platform` | `kubectl apply -k k8s/platform` | Secret sync, Kafka + topics, MongoDB, Redis, DBM bootstrap jobs |
+| 3 | `k8s/platform` | `kubectl apply -k k8s/platform` | Secret sync, Kafka + topics, MongoDB, Redis, DBM bootstrap jobs, MongoDB users (`mongo-bootstrap`) |
 | 4 | `k8s/agent` | `kubectl apply -k k8s/agent` | DatadogAgent (APM, logs, CNM, USM, DBM cluster checks, Admission Controller) |
-| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, rewards, frontend, load-generator |
+| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, rewards, chat, frontend, load-generator |
 | 6 | `k8s/ingress` | `kubectl apply -k k8s/ingress` | Public origin: SPA at `/`, APIs under `/api/*`, managed certificate |
 
 Cluster credentials: `gcloud container clusters get-credentials indowebinar-gke --region asia-southeast2`.
@@ -66,6 +66,9 @@ idempotent. Re-run it after adding a database:
 kubectl delete job -n nusabank -l app=dbm-bootstrap
 kubectl apply -k k8s/platform
 ```
+
+MongoDB (in-cluster) has its own job, `k8s/platform/mongo-bootstrap.yaml`: the `chat` and
+`datadog` users plus query stats sampling, set at runtime — re-run it after MongoDB restarts.
 
 Gotcha: Cloud SQL MySQL users created through the API have host `''`, not `'%'` —
 grants must target `'datadog'@''`.
