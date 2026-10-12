@@ -31,7 +31,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-auth
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.2.3"
+    tags.datadoghq.com/version: "0.2.4"
 spec:
   replicas: 2
   selector:
@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.2.3
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/auth-service:0.2.4
           ports:
             - name: http
               containerPort: 8080

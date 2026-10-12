@@ -85,9 +85,9 @@ func (a accountClient) lookup(ctx context.Context, number string) (*accountRef, 
 
 // hold reserves amount+fee. A 422 from account-service is a business rejection
 // (insufficient balance, ineligible account) and is passed through as-is.
-func (a accountClient) hold(ctx context.Context, number string, total int64, reference string) (string, error) {
+func (a accountClient) hold(ctx context.Context, number string, total int64, reference, idempotencyKey string) (string, error) {
 	res, err := a.do(ctx, http.MethodPost, "/internal/accounts/"+number+"/holds",
-		map[string]string{"Idempotency-Key": reference},
+		map[string]string{"Idempotency-Key": idempotencyKey},
 		map[string]any{"amount": idr(total), "reference": reference, "purpose": "TRANSFER"})
 	if err != nil || res.status >= 500 {
 		return "", errPartner(http.StatusBadGateway, "PARTNER_UNAVAILABLE", "Layanan rekening sedang tidak tersedia", partnerAccount)

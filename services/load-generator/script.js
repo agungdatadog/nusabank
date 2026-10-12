@@ -10,6 +10,7 @@ const BASE = __ENV.BASE_URL || "http://136.69.32.40";
 const RAIL_INBOUND = __ENV.RAIL_INBOUND_URL || "http://payment-service.nusabank.svc.cluster.local:8080/internal/rails/inbound";
 const PASSWORD = __ENV.DEMO_CUSTOMER_PASSWORD;
 const OTP = __ENV.DEMO_MFA_OTP;
+const OPERATOR_PASSWORD = __ENV.DEMO_OPERATOR_PASSWORD;
 const PEAK_RPS = Number(__ENV.PEAK_JOURNEYS_PER_SECOND || "0.8");
 
 const seed = JSON.parse(open("./customers.json")).customers;
@@ -108,10 +109,15 @@ function statement(token, c) {
 
 function transfer(token, c, rail) {
   const p = authed(token, `transfer_${rail.toLowerCase()}`);
-  http.get(`${BASE}/api/accounts`, p);
+  const accts = http.get(`${BASE}/api/accounts`, p);
   http.get(`${BASE}/api/transfers/banks`, p);
   think(3, 10); // filling the form
-  const source = pick(c.savings);
+  // People look at their balance first: pick a funded account and never type more than it holds.
+  const available = {};
+  if (accts.status === 200) for (const a of accts.json().accounts) available[a.account_number] = Number(a.available_balance.amount);
+  const funded = c.savings.filter((n) => (available[n] ?? 0) >= 50_000);
+  if (!funded.length) return; // nothing to send from today
+  const source = pick(funded);
   let bank = "899";
   let dest;
   let value;
@@ -127,6 +133,9 @@ function transfer(token, c, rail) {
     dest = externalAccount();
     value = amount(5_000_000, 0.7, 100_000);
   }
+  const cap = Math.floor((available[source] * 0.9) / 5_000) * 5_000; // fee headroom
+  if (Number(value) > cap) value = String(Math.max(rail === "SKN" ? 100_000 : 10_000, rail === "SKN" ? Math.floor(cap / 100_000) * 100_000 : cap));
+  if (Number(value) > cap) return;
   const inq = http.post(`${BASE}/api/transfers/inquiry`, JSON.stringify({
     rail, source_account_number: source, destination_bank_code: bank, destination_account_number: dest,
     amount: { amount: value, currency: "IDR" },
@@ -318,6 +327,26 @@ function chat(token) {
   }
 }
 
+// Back-office operators check failed transfers and look customers up during office hours.
+function operator() {
+  const p = { headers: json, tags: { journey: "operator" } };
+  const login = http.post(`${BASE}/api/admin/login`, JSON.stringify({ username: pick(["ops.rina", "ops.bayu", "ops.dewi"]), password: OPERATOR_PASSWORD }), p);
+  if (!check(login, { "operator login 200": (r) => r.status === 200 })) return;
+  const a = { headers: { ...json, Authorization: `Bearer ${login.json().access_token}` }, tags: { journey: "operator" } };
+  const failed = http.get(`${BASE}/api/admin/transfers?status=FAILED`, a);
+  check(failed, { "ops transfers 200": (r) => r.status === 200 });
+  think(5, 20);
+  // Re-drive what failed on an unavailable rail; business rejections are left alone.
+  const retryable = failed.status === 200 ? failed.json().filter((t) => t.failure_reason === "RAIL_UNAVAILABLE").slice(0, 3) : [];
+  for (const t of retryable) {
+    http.post(`${BASE}/api/admin/transfers/${t.id}/retry`, null, a);
+    think(2, 6);
+  }
+  const c = pick(customers);
+  http.get(`${BASE}/api/admin/customers?q=${encodeURIComponent(Math.random() < 0.5 ? c.username.split(".")[1] : pick(c.savings))}`, a);
+  if (Math.random() < 0.3) http.get(`${BASE}/api/admin/audit-log?page_size=50`, a);
+}
+
 const SENDERS = ["BUDI SANTOSO", "SITI RAHMAWATI", "AGUS PRATAMA", "DEWI KUSUMA", "HENDRA WIJAYA", "RINA HIDAYAT", "ANDI NASUTION"];
 const EMPLOYERS = ["PT SINAR MAS TEKNOLOGI", "PT GARUDA LOGISTIK NUSANTARA", "PT MITRA RETAIL INDONESIA", "PT CAHAYA ENERGI PERSADA", "UNIVERSITAS NUSANTARA"];
 
@@ -361,6 +390,11 @@ export default function () {
   if (r < 0.15) {
     wrongPassword(c);
     journeys.add(1, { journey: "login_failed" });
+    return;
+  }
+  if (r < 0.16) {
+    operator();
+    journeys.add(1, { journey: "operator" });
     return;
   }
   const token = login(c);

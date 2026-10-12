@@ -88,6 +88,12 @@ resource "random_password" "demo_customer" {
   special = false
 }
 
+# Shared password for the seeded back-office operators (admin-service).
+resource "random_password" "demo_operator" {
+  length  = 16
+  special = false
+}
+
 resource "random_password" "demo_otp" {
   length  = 6
   upper   = false
@@ -99,6 +105,7 @@ locals {
   demo_secrets = {
     "demo-customer-password" = random_password.demo_customer.result
     "demo-mfa-otp"           = random_password.demo_otp.result
+    "demo-operator-password" = random_password.demo_operator.result
   }
 }
 

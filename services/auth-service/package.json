@@ -1,6 +1,6 @@
 {
   "name": "nusabank-auth-service",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Nusa Bank login, MFA, JWT and onboarding funnel",
   "main": "dist/index.js",

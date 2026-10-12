@@ -9,6 +9,7 @@ import { ApplyPage } from "./pages/ApplyPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoanPage } from "./pages/LoanPage";
 import { LoginPage } from "./pages/LoginPage";
+import { OpsPage } from "./pages/OpsPage";
 import { RewardsPage } from "./pages/RewardsPage";
 import { TransferHistoryPage } from "./pages/TransferHistoryPage";
 import { TransferPage } from "./pages/TransferPage";
@@ -30,6 +31,7 @@ createRoot(document.getElementById("root")!).render(
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/buka-rekening" element={<ApplyPage />} />
+          <Route path="/ops" element={<OpsPage />} />
           <Route element={<Protected><Layout /></Protected>}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/rekening/:accountNumber" element={<AccountPage />} />

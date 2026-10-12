@@ -6,6 +6,7 @@ import { migrate, pool, seedCustomers } from "./db";
 import { ApiError, errorBody } from "./errors";
 import { logger } from "./logger";
 import { auth } from "./routes/auth";
+import { internal } from "./routes/internal";
 import { onboarding, promotions } from "./routes/onboarding";
 
 const app = new Hono();
@@ -38,6 +39,7 @@ app.get("/readyz", async (c) => {
 app.route("/api/auth", auth);
 app.route("/api/onboarding/applications", onboarding);
 app.route("/api/promotions", promotions);
+app.route("/internal", internal);
 
 app.notFound((c) => c.json({ code: "NOT_FOUND", message: "Endpoint tidak ditemukan" }, 404));
 

@@ -120,6 +120,8 @@ func main() {
 		r.Post("/", s.createTransfer)
 		r.Get("/{transferId}", s.getTransfer)
 	})
+	r.Get("/internal/transfers", s.internalListTransfers)
+	r.Post("/internal/transfers/{transferId}/retry", s.internalRetryTransfer)
 	r.Post("/internal/rails/skn/settlements", s.sknSettlement)
 	r.Post("/internal/rails/inbound", s.receiveInbound)
 

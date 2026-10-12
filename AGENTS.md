@@ -76,7 +76,7 @@ The series promises one connected picture; a missing link is a broken demo.
 | Link | How |
 |------|-----|
 | Log ↔ Trace | JSON logs, `DD_LOGS_INJECTION=true` (SSI) or the slog integration (Go); one `request completed` line per request, logged inside the request span |
-| DBM ↔ Trace | `DD_DBM_PROPAGATION_MODE=full` on every service with a SQL database |
+| DBM ↔ Trace | `DD_DBM_PROPAGATION_MODE=full` on every service with a SQL or MongoDB database; Java also needs `DD_DBM_TRACE_PREPARED_STATEMENTS=true` and `DD_INTEGRATION_JDBC_DATASOURCE_ENABLED=true` (otherwise prepared statements carry no `traceparent`) |
 | RUM ↔ Trace | frontend `allowedTracingUrls` with `propagatorTypes: ["datadog", "tracecontext"]`; API served same-origin under `/api` |
 | Trace ↔ Trace | never strip `traceparent` / `x-datadog-*` headers; propagate context into Kafka messages |
 | Data Streams | `DD_DATA_STREAMS_ENABLED=true` on every Kafka producer and consumer; Go uses the traced kafka-go writer/reader |

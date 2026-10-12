@@ -15,6 +15,8 @@ spec:
       remoteRef: { key: indowebinar-demo-customer-password }
     - secretKey: DEMO_MFA_OTP
       remoteRef: { key: indowebinar-demo-mfa-otp }
+    - secretKey: DEMO_OPERATOR_PASSWORD
+      remoteRef: { key: indowebinar-demo-operator-password }
 ---
 # Runs forever and is the source of EP1's traffic history — never scale it down to
 # "save resources" before the series is over.
@@ -29,7 +31,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-load-generator
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.5.0"
+    tags.datadoghq.com/version: "0.6.1"
 spec:
   replicas: 1
   strategy:
@@ -43,7 +45,7 @@ spec:
     spec:
       containers:
         - name: k6
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.5.0
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.6.1
           env:
             # Through the public Ingress over HTTPS, so GCP load balancer metrics see real traffic.
             - name: BASE_URL

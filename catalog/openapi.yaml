@@ -400,6 +400,24 @@ paths:
         '204': { description: Released }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /internal/customers:
+    get:
+      tags: [auth-service]
+      operationId: internalSearchCustomers
+      summary: Customer search for admin-service (max 20 results)
+      security: []
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 3 }, description: 'Name or email (contains), or exact CIF' }
+      responses:
+        '200':
+          description: Matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   # ──────────────────────────── payment-service ────────────────────────────
   /api/transfers/banks:
     get:
@@ -564,6 +582,59 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Transfer' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/transfers:
+    get:
+      tags: [payment-service]
+      operationId: internalListTransfers
+      summary: Transfers across customers, newest first (admin-service operations view)
+      security: []
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransferStatus' } }
+        - { name: rail, in: query, schema: { $ref: '#/components/schemas/RailCode' } }
+        - { name: since, in: query, schema: { type: string, format: date-time }, description: 'Default: 24 hours ago' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200':
+          description: Transfers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transfer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /internal/transfers/{transferId}/retry:
+    parameters:
+      - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [payment-service]
+      operationId: internalRetryTransfer
+      summary: Re-drive a transfer that FAILED with RAIL_UNAVAILABLE
+      description: |
+        Places a new hold and calls the rail again; the outcome is a new
+        transfer.completed event (new event_id) for the same transfer_id. Business
+        rejections (beneficiary bank, balance, limits) are not retryable.
+      security: []
+      responses:
+        '202':
+          description: Retried; the transfer in its new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Not retryable (status or failure reason)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: The new hold was rejected (e.g. balance spent since)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
 
   /internal/rails/skn/settlements:
     post:
@@ -1043,6 +1114,37 @@ paths:
         '502': { $ref: '#/components/responses/PartnerError' }
 
   # ───────────────────────────── admin-service ─────────────────────────────
+  /api/admin/login:
+    post:
+      tags: [admin-service]
+      operationId: adminLogin
+      summary: Operator login; issues an operator JWT (role=operator, sub=username)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, examples: ['ops.rina'] }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Operator token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, expires_in, operator]
+                properties:
+                  access_token: { type: string }
+                  expires_in: { type: integer, examples: [3600] }
+                  operator: { $ref: '#/components/schemas/Operator' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /api/admin/customers:
     get:
       tags: [admin-service]
@@ -1098,11 +1200,19 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Transfer' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Transfer not in a retryable state
+          description: Transfer not in a retryable state (only FAILED with RAIL_UNAVAILABLE)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: New hold rejected (balance spent since the failure)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+        '503': { $ref: '#/components/responses/PartnerUnavailable' }
 
   /api/admin/audit-log:
     get:
@@ -1735,6 +1845,7 @@ components:
         rail_reference: { type: string }
         skn_window_id: { type: string }
         failure_reason: { type: string }
+        retry_count: { type: integer, description: 'Operator retries so far (admin-service)' }
         created_at: { type: string, format: date-time }
         settled_at: { type: string, format: date-time }
     SknSettlementBatch:
@@ -2075,13 +2186,19 @@ components:
         handoff_to_human: { type: boolean }
 
     # ─────────────── admin-service ───────────────
+    Operator:
+      type: object
+      required: [username, full_name]
+      properties:
+        username: { type: string, examples: ['ops.rina'] }
+        full_name: { type: string, examples: ['Rina Kartika'] }
     AuditEntry:
       type: object
       required: [id, operator, action, target, created_at]
       properties:
         id: { type: string, format: uuid }
         operator: { type: string, examples: ['ops.rina'] }
-        action: { type: string, examples: ['TRANSFER_RETRY', 'CUSTOMER_VIEW'] }
+        action: { type: string, examples: ['TRANSFER_RETRY', 'CUSTOMER_SEARCH', 'TRANSFER_LIST', 'LOGIN'] }
         target: { type: string }
         created_at: { type: string, format: date-time }
 

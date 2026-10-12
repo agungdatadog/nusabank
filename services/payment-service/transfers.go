@@ -214,6 +214,7 @@ type transfer struct {
 	RailReference            string     `json:"rail_reference,omitempty"`
 	SKNWindowID              string     `json:"skn_window_id,omitempty"`
 	FailureReason            string     `json:"failure_reason,omitempty"`
+	RetryCount               int        `json:"retry_count,omitempty"`
 	CreatedAt                time.Time  `json:"created_at"`
 	SettledAt                *time.Time `json:"settled_at,omitempty"`
 
@@ -226,7 +227,7 @@ type transfer struct {
 const transferColumns = `id, cif, rail, status, source_account_number, source_account_name, destination_bank_code,
 	destination_bank_name, destination_account_number, destination_account_name, amount, fee, COALESCE(note, ''),
 	COALESCE(hold_id::text, ''), COALESCE(rail_reference, ''), COALESCE(skn_window_id, ''), COALESCE(failure_reason, ''),
-	created_at, settled_at`
+	retry_count, created_at, settled_at`
 
 type scanner interface{ Scan(...any) error }
 
@@ -235,7 +236,7 @@ func scanTransfer(row scanner) (*transfer, error) {
 	var amount, fee float64
 	err := row.Scan(&t.ID, &t.cif, &t.Rail, &t.Status, &t.SourceAccountNumber, &t.sourceAccountName, &t.DestinationBankCode,
 		&t.DestinationBankName, &t.DestinationAccountNumber, &t.DestinationAccountName, &amount, &fee, &t.Note,
-		&t.holdID, &t.RailReference, &t.SKNWindowID, &t.FailureReason, &t.CreatedAt, &t.SettledAt)
+		&t.holdID, &t.RailReference, &t.SKNWindowID, &t.FailureReason, &t.RetryCount, &t.CreatedAt, &t.SettledAt)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +323,20 @@ func (s *server) createTransfer(w http.ResponseWriter, r *http.Request) {
 	span.SetTag("transfer.rail", t.Rail)
 	span.SetTag("transfer.destination_bank", bankTag(t.DestinationBankCode))
 
-	holdID, err := s.accounts.hold(ctx, t.SourceAccountNumber, t.amount+t.fee, t.ID)
+	if err := s.execute(ctx, t, t.ID); err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	final, _ := s.loadTransfer(ctx, "id = $1", t.ID)
+	writeJSON(w, http.StatusCreated, final)
+}
+
+// execute reserves funds and drives the rail for a PROCESSING transfer. holdKey is the
+// hold's idempotency key: the transfer id on first attempt, a per-attempt key on operator
+// retries (the first hold was released). A returned error is already recorded on the
+// transfer and is the caller's HTTP answer.
+func (s *server) execute(ctx context.Context, t *transfer, holdKey string) error {
+	holdID, err := s.accounts.hold(ctx, t.SourceAccountNumber, t.amount+t.fee, t.ID, holdKey)
 	if err != nil {
 		var ae *apiError
 		reason := "HOLD_FAILED"
@@ -330,13 +344,11 @@ func (s *server) createTransfer(w http.ResponseWriter, r *http.Request) {
 			reason = ae.Code
 		}
 		s.finish(ctx, t, "FAILED", reason, "", "")
-		writeErr(w, r, err)
-		return
+		return err
 	}
 	t.holdID = holdID
 	if _, err := s.db.ExecContext(ctx, "UPDATE transfers SET hold_id = $1 WHERE id = $2", holdID, t.ID); err != nil {
-		writeErr(w, r, err)
-		return
+		return err
 	}
 
 	rt := railTransfer{
@@ -352,8 +364,7 @@ func (s *server) createTransfer(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case err != nil:
 			s.finish(ctx, t, "FAILED", "RAIL_UNAVAILABLE", "", "")
-			writeErr(w, r, err)
-			return
+			return err
 		case out.rejected:
 			s.finish(ctx, t, "FAILED", "REJECTED_BY_BENEFICIARY_BANK", "", "")
 		default:
@@ -363,19 +374,16 @@ func (s *server) createTransfer(w http.ResponseWriter, r *http.Request) {
 		out, err := s.rails.skn(ctx, rt)
 		if err != nil {
 			s.finish(ctx, t, "FAILED", "RAIL_UNAVAILABLE", "", "")
-			writeErr(w, r, err)
-			return
+			return err
 		}
 		// Stays PROCESSING until the clearing window settles via the callback.
 		if _, err := s.db.ExecContext(ctx, "UPDATE transfers SET rail_reference = $1, skn_window_id = $2 WHERE id = $3",
 			out.railReference, out.windowID, t.ID); err != nil {
-			writeErr(w, r, err)
-			return
+			return err
 		}
 		slog.InfoContext(ctx, "SKN transfer queued", "transfer.id", t.ID, "window_id", out.windowID, "partner.name", partnerSKN)
 	}
-	final, _ := s.loadTransfer(ctx, "id = $1", t.ID)
-	writeJSON(w, http.StatusCreated, final)
+	return nil
 }
 
 // transferEvent matches catalog/openapi.yaml#/components/schemas/TransferEvent.
