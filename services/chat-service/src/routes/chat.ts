@@ -4,7 +4,7 @@ import { ApiError, notFound, unauthorized } from "../errors";
 import { answer, GREETING } from "../faq";
 import { verify } from "../jwt";
 import { logger } from "../logger";
-import { append, createSession, findSession, message, messageView, sessionView, type Message, type Responder, type Session } from "../store";
+import { append, createSession, setResponder, findSession, message, messageView, sessionView, type Message, type Responder, type Session } from "../store";
 import tracer, { tag } from "../tracer";
 import { jsonBody, str, UUID } from "../validate";
 
@@ -77,7 +77,10 @@ chat.post("/sessions/:sessionId/messages", async (c) => {
   const content = str(await jsonBody(c), "content");
   if (content.length > 2000) throw new ApiError(400, "VALIDATION_ERROR", "content must be at most 2000 characters");
   if (s.status !== "OPEN") throw new ApiError(409, "SESSION_NOT_OPEN", "Sesi ini sudah diteruskan ke petugas, silakan mulai sesi baru");
-  const responder = s.responder ?? "faq";
+  // Sessions from before per-session responders (0.1.x) adopt the current one on their
+  // next turn, so a tab left open across a deploy doesn't stay on the FAQ forever.
+  const responder = s.responder ?? pickResponder(c.req.header("User-Agent"));
+  if (!s.responder) await setResponder(s._id, cif, responder);
   tag({ "chat.session_id": s._id, "chat.responder": responder });
 
   // The customer's turn is stored first, so it survives even if the responder fails.

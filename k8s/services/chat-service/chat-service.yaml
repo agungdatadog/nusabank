@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-chat
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.2.0"
+    tags.datadoghq.com/version: "0.2.1"
 spec:
   replicas: 2
   selector:
@@ -44,7 +44,7 @@ spec:
     spec:
       containers:
         - name: chat-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/chat-service:0.2.0
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/chat-service:0.2.1
           ports:
             - name: http
               containerPort: 8080

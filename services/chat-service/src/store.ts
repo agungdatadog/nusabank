@@ -66,6 +66,10 @@ export async function append(id: string, cif: string, msgs: Message[], status?: 
   );
 }
 
+export async function setResponder(id: string, cif: string, responder: Responder): Promise<void> {
+  await sessions.updateOne({ _id: id, cif, responder: { $exists: false } }, { $set: { responder } });
+}
+
 // Matches catalog/openapi.yaml#/components/schemas/ChatMessage and ChatSession.
 export const messageView = (m: Message) => ({ id: m.id, role: m.role, content: m.content, created_at: m.created_at.toISOString() });
 export const sessionView = (s: Session) => ({

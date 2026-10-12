@@ -66,7 +66,10 @@ export function ChatWidget() {
     <div className="chat-panel card">
       <div className="chat-head">
         <strong>Asisten Nusa Bank</strong>
-        <button className="link" onClick={() => setOpen(false)}>Tutup</button>
+        <span className="row" style={{ gap: "0.9rem" }}>
+          <button className="link" onClick={restart} disabled={busy}>Sesi baru</button>
+          <button className="link" onClick={() => setOpen(false)}>Tutup</button>
+        </span>
       </div>
       <div className="chat-body">
         {(session?.messages ?? []).map((m) => (
