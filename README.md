@@ -96,6 +96,8 @@ tags, to keep custom-metric cardinality bounded.
 | `nusabank.loan.simulation.count` | count | `product` |
 | `nusabank.loan.application.count` / `.amount` | count / distribution | `product`, `stage` (submitted / approved / rejected / disbursed) |
 | `nusabank.onboarding.step.count` | count | `product`, `step` |
+| `nusabank.rewards.points.earned` | count (points) | `source` (transfer / bill), `segment` |
+| `nusabank.rewards.redemption.count` / `.points.redeemed` | count | `item` |
 
 ---
 

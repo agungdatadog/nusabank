@@ -16,8 +16,7 @@ Each layer needs the previous one. Always review the plan before applying.
 | 2 | `terraform/k8s` | `terraform -chdir=terraform/k8s plan -out=k8s.tfplan` → `apply k8s.tfplan` | Namespaces, Datadog Operator, External Secrets, Strimzi, `external-secrets` KSA |
 | 3 | `k8s/platform` | `kubectl apply -k k8s/platform` | Secret sync, Kafka + topics, MongoDB, Redis, DBM bootstrap jobs |
 | 4 | `k8s/agent` | `kubectl apply -k k8s/agent` | DatadogAgent (APM, logs, CNM, USM, DBM cluster checks, Admission Controller) |
-
-| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, frontend, load-generator |
+| 5 | `k8s/services/*` | `kubectl apply -k k8s/services/<service>` | partner-mock, auth, account, ledger-worker, payment, loan, biller, rewards, frontend, load-generator |
 | 6 | `k8s/ingress` | `kubectl apply -k k8s/ingress` | Public origin: SPA at `/`, APIs under `/api/*`, managed certificate |
 
 Cluster credentials: `gcloud container clusters get-credentials indowebinar-gke --region asia-southeast2`.
@@ -30,6 +29,9 @@ gcloud builds submit . --region=asia-southeast2 --config=tools/build/cloudbuild.
   --substitutions=_SERVICE=biller-service,_VERSION=0.1.1 > build.log 2>&1 \
   && kubectl apply -k k8s/services/biller-service
 ```
+
+The frontend is the exception: its Dockerfile uses its own folder as context
+(`gcloud builds submit services/frontend --region=asia-southeast2 --tag …/frontend:<ver>`).
 
 A new `/api/<prefix>` needs its Service (with the NEG annotation) running before the
 Ingress path is added; the load balancer takes a few minutes to route it.

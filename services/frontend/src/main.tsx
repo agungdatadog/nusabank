@@ -9,6 +9,7 @@ import { ApplyPage } from "./pages/ApplyPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoanPage } from "./pages/LoanPage";
 import { LoginPage } from "./pages/LoginPage";
+import { RewardsPage } from "./pages/RewardsPage";
 import { TransferHistoryPage } from "./pages/TransferHistoryPage";
 import { TransferPage } from "./pages/TransferPage";
 import { initRum } from "./rum";
@@ -36,6 +37,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/transfer/riwayat" element={<TransferHistoryPage />} />
             <Route path="/bayar" element={<BillerPage />} />
             <Route path="/pinjaman" element={<LoanPage />} />
+            <Route path="/poin" element={<RewardsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

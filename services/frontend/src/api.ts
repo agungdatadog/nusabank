@@ -210,3 +210,30 @@ export interface BillPayment {
   failure_reason?: string;
   created_at: string;
 }
+
+// ---- rewards-service ----
+
+export interface RewardsBalance {
+  points: number;
+  tier: "SILVER" | "GOLD" | "PLATINUM";
+  tier_points_90d?: number;
+  next_tier?: "GOLD" | "PLATINUM";
+  points_to_next_tier?: number;
+}
+
+export interface RewardsEntry {
+  id: string;
+  type: "EARN" | "REDEEM" | "EXPIRE";
+  points: number;
+  description: string;
+  reference?: string;
+  voucher_code?: string;
+  created_at: string;
+}
+
+export interface RewardItem {
+  code: string;
+  name: string;
+  description?: string;
+  points_cost: number;
+}

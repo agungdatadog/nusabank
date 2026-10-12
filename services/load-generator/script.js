@@ -276,6 +276,23 @@ function bill(token, c) {
   payBill(token, c, "bill", body);
 }
 
+// Customers check their points now and then; a few redeem when they can afford something.
+function rewards(token) {
+  const p = authed(token, "rewards");
+  const bal = http.get(`${BASE}/api/rewards`, p);
+  check(bal, { "rewards 200": (r) => r.status === 200 });
+  http.get(`${BASE}/api/rewards/history?page_size=15`, p);
+  const catalog = http.get(`${BASE}/api/rewards/catalog`, p);
+  if (bal.status !== 200 || catalog.status !== 200 || Math.random() > 0.1) return;
+  think(3, 10); // browsing rewards
+  const affordable = catalog.json().filter((i) => i.points_cost <= bal.json().points);
+  if (!affordable.length) return;
+  const res = http.post(`${BASE}/api/rewards/redemptions`, JSON.stringify({ item_code: pick(affordable).code }), {
+    headers: { ...p.headers, "Idempotency-Key": uuid() }, tags: p.tags,
+  });
+  check(res, { "redemption 201": (r) => r.status === 201 });
+}
+
 const SENDERS = ["BUDI SANTOSO", "SITI RAHMAWATI", "AGUS PRATAMA", "DEWI KUSUMA", "HENDRA WIJAYA", "RINA HIDAYAT", "ANDI NASUTION"];
 const EMPLOYERS = ["PT SINAR MAS TEKNOLOGI", "PT GARUDA LOGISTIK NUSANTARA", "PT MITRA RETAIL INDONESIA", "PT CAHAYA ENERGI PERSADA", "UNIVERSITAS NUSANTARA"];
 
@@ -325,7 +342,8 @@ export default function () {
   if (!token) return;
   const j = Math.random();
   let name;
-  if (j < 0.29) { name = "browse"; group(name, () => browse(token, c)); }
+  if (j < 0.26) { name = "browse"; group(name, () => browse(token, c)); }
+  else if (j < 0.29) { name = "rewards"; group(name, () => rewards(token)); }
   else if (j < 0.37) { name = "topup_ewallet"; group(name, () => topupEwallet(token, c)); }
   else if (j < 0.415) { name = "pulsa_data"; group(name, () => pulsa(token, c)); }
   else if (j < 0.45) { name = "bill"; group(name, () => bill(token, c)); }

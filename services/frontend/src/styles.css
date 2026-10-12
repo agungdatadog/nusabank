@@ -87,6 +87,12 @@ button:disabled { opacity: 0.55; cursor: default; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chips button { background: var(--bg); border: 1px solid var(--line); color: var(--indigo); padding: 0.35rem 0.8rem; font-size: 0.85rem; }
 .token { font-size: 1.25rem; font-weight: 700; background: var(--indigo-50); color: var(--indigo); border-radius: 10px; padding: 0.7rem 1rem; }
+.tier { font-weight: 700; letter-spacing: 0.06em; border-radius: 999px; padding: 0.2rem 0.8rem; font-size: 0.8rem; }
+.tier.silver { background: #eceef3; color: #4b5161; }
+.tier.gold { background: #fbf0d5; color: #8a6116; }
+.tier.platinum { background: #e6e4f7; color: var(--indigo); }
+.progress { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+.progress > div { height: 100%; background: var(--coral); }
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .table th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 0.55rem 0.5rem; }

@@ -29,7 +29,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-load-generator
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.3.0"
+    tags.datadoghq.com/version: "0.4.0"
 spec:
   replicas: 1
   strategy:
@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
         - name: k6
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.3.0
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.4.0
           env:
             # Through the public Ingress over HTTPS, so GCP load balancer metrics see real traffic.
             - name: BASE_URL

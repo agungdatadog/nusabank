@@ -1,0 +1,114 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: rewards-service
+  namespace: nusabank
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    name: rewards-service
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: indowebinar-db-rewards-password }
+    - secretKey: JWT_SECRET
+      remoteRef: { key: indowebinar-jwt-secret }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rewards-service
+  namespace: nusabank
+  labels: &labels
+    app: rewards-service
+    app.kubernetes.io/name: rewards-service
+    app.kubernetes.io/part-of: nusabank
+    tags.datadoghq.com/service: nusabank-rewards
+    tags.datadoghq.com/env: demo
+    tags.datadoghq.com/version: "0.1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rewards-service
+  template:
+    metadata:
+      labels:
+        <<: *labels
+        admission.datadoghq.com/enabled: "true"
+        nusabank.io/lang: node # opts in to SSI tracer injection
+        # Node's DogStatsD client speaks UDP; hostip mode gives it DD_AGENT_HOST:8125.
+        admission.datadoghq.com/config.mode: hostip
+    spec:
+      containers:
+        - name: rewards-service
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/rewards-service:0.1.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: 10.70.0.5 # indowebinar-mysql-partner (terraform/infra output cloudsql_private_ips)
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: rewards
+            - name: DB_USER
+              value: rewards
+            - name: DD_LOGS_INJECTION
+              value: "true"
+            # Comments each SQL statement with the trace context: DBM query samples link to the APM trace.
+            - name: DD_DBM_PROPAGATION_MODE
+              value: full
+            # kafkajs consumer: pathway checkpoints on payments.transfer.v1 and biller.payment.v1.
+            - name: DD_DATA_STREAMS_ENABLED
+              value: "true"
+            - name: DD_RUNTIME_METRICS_ENABLED
+              value: "true"
+            - name: DD_PROFILING_ENABLED
+              value: "true"
+            - name: DD_APPSEC_ENABLED
+              value: "true"
+            - name: DD_IAST_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef: { name: rewards-service }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000 # the node image's "node" user
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rewards-service
+  namespace: nusabank
+  annotations:
+    # Container-native load balancing: the GCE Ingress targets pod IPs directly.
+    cloud.google.com/neg: '{"ingress": true}'
+  labels:
+    app: rewards-service
+    app.kubernetes.io/name: rewards-service
+spec:
+  selector:
+    app: rewards-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

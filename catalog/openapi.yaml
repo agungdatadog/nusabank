@@ -943,13 +943,15 @@ paths:
               type: object
               required: [item_code]
               properties:
-                item_code: { type: string, examples: ['CASHBACK-50K'] }
+                item_code: { type: string, examples: ['VOUCHER-KOPI-25K'] }
       responses:
         '201':
           description: Redeemed
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RewardsEntry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422':
           description: Not enough points
           content:
@@ -1996,6 +1998,9 @@ components:
       properties:
         points: { type: integer, examples: [12450] }
         tier: { type: string, enum: [SILVER, GOLD, PLATINUM] }
+        tier_points_90d: { type: integer, description: Points earned in the last 90 days; tier is derived from this }
+        next_tier: { type: string, enum: [GOLD, PLATINUM] }
+        points_to_next_tier: { type: integer }
         expiring_points: { type: integer }
         expiring_at: { type: string, format: date }
     RewardsEntry:
@@ -2006,14 +2011,17 @@ components:
         type: { type: string, enum: [EARN, REDEEM, EXPIRE] }
         points: { type: integer }
         description: { type: string, examples: ['Transfer BI FAST Rp1.500.000'] }
-        reference: { type: string }
+        reference: { type: string, description: 'Source transfer / bill payment id, or the reward item code' }
+        voucher_code: { type: string, description: REDEEM only, examples: ['NSB-KOPI-7Q4M-2XKD'] }
         created_at: { type: string, format: date-time }
     RewardItem:
       type: object
       required: [code, name, points_cost]
+      description: Non-monetary rewards (vouchers, donations), so redemption never moves money outside the ledger.
       properties:
-        code: { type: string }
-        name: { type: string, examples: ['Cashback Rp50.000'] }
+        code: { type: string, examples: ['VOUCHER-KOPI-25K'] }
+        name: { type: string, examples: ['Voucher Kopi Rp25.000'] }
+        description: { type: string }
         points_cost: { type: integer }
 
     # ─────────────── chat-service / ai-agent ───────────────
