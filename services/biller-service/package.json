@@ -1,6 +1,6 @@
 {
   "name": "nusabank-biller-service",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Nusa Bank e-wallet top-up, pulsa & data, and bill payments via a PPOB aggregator",
   "main": "dist/index.js",

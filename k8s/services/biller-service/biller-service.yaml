@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-biller
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.1"
+    tags.datadoghq.com/version: "0.1.2"
 spec:
   replicas: 2
   selector:
@@ -44,7 +44,7 @@ spec:
     spec:
       containers:
         - name: biller-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/biller-service:0.1.1
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/biller-service:0.1.2
           ports:
             - name: http
               containerPort: 8080

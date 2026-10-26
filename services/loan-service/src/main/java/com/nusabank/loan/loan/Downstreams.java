@@ -3,6 +3,11 @@ package com.nusabank.loan.loan;
 import com.nusabank.loan.LoanProperties;
 import com.nusabank.loan.web.ApiException;
 import com.nusabank.loan.web.Money;
+import datadog.trace.api.DDTags;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.Tracer;
+import io.opentracing.util.GlobalTracer;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Map;
@@ -49,16 +54,31 @@ public class Downstreams {
         }
     }
 
+    /**
+     * The bureau call runs inside a client span tagged peer.service, so the credit bureau shows
+     * up as an inferred service of its own (Service Map: loan-service -> credit-bureau).
+     */
     public CreditCheck creditCheck(String nik, BigDecimal requested) {
-        try {
+        Tracer tracer = GlobalTracer.get();
+        Span span = tracer.buildSpan("partner.request")
+                .withTag(DDTags.RESOURCE_NAME, PARTNER_BUREAU + " check")
+                .withTag("peer.service", PARTNER_BUREAU)
+                .withTag("partner.name", PARTNER_BUREAU)
+                .withTag("span.kind", "client")
+                .start();
+        try (Scope ignored = tracer.activateSpan(span)) {
             return bureau.post().uri("/credit-bureau/v1/checks")
                     .body(Map.of("nik", nik, "requested_amount", Money.of(requested, "IDR")))
                     .retrieve().body(CreditCheck.class);
         } catch (RestClientException e) {
+            span.setTag("error", true);
+            span.setTag("error.message", e.getMessage());
             boolean timeout = e.getMostSpecificCause() instanceof java.net.SocketTimeoutException;
             throw new ApiException(timeout ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_GATEWAY,
                     timeout ? "PARTNER_TIMEOUT" : "PARTNER_UNAVAILABLE",
                     "Pemeriksaan kredit sedang tidak tersedia, pengajuan Anda tersimpan dan dapat dikirim ulang", PARTNER_BUREAU);
+        } finally {
+            span.finish();
         }
     }
 }

@@ -226,6 +226,44 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  widget {
+    group_definition {
+      title       = "Partner pihak ketiga (peer.service)"
+      layout_type = "ordered"
+
+      widget {
+        toplist_definition {
+          title = "Latensi p95 per biller lewat agregator PPOB (detik)"
+          request {
+            q = "top(p95:trace.ppob.request{${local.env}} by {peer.service}, 20, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Latensi p95 rail & biro kredit (detik)"
+          request {
+            q = "top(p95:trace.partner.request{${local.env}} by {peer.service}, 10, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Error rate per partner (%)"
+          show_legend = true
+          request {
+            q            = "100 * default_zero(sum:trace.ppob.request.errors{${local.env}} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{${local.env}} by {peer.service}.as_count()"
+            display_type = "line"
+          }
+          request {
+            q            = "100 * default_zero(sum:trace.partner.request.errors{${local.env}} by {peer.service}.as_count()) / sum:trace.partner.request.hits{${local.env}} by {peer.service}.as_count()"
+            display_type = "line"
+          }
+        }
+      }
+    }
+  }
+
   # ───────────────────────────── 2. Transfer ─────────────────────────────
   widget {
     group_definition {
@@ -770,23 +808,23 @@ resource "datadog_dashboard" "business" {
   # Tabs reference the top-level widgets (the groups above) by position.
   tab {
     name       = "Ringkasan"
-    widget_ids = ["@1", "@2"]
+    widget_ids = ["@1", "@2", "@3"]
   }
   tab {
     name       = "Transfer"
-    widget_ids = ["@3", "@4"]
+    widget_ids = ["@4", "@5"]
   }
   tab {
     name       = "Top Up & Tagihan"
-    widget_ids = ["@5", "@6"]
+    widget_ids = ["@6", "@7"]
   }
   tab {
     name       = "Kredit"
-    widget_ids = ["@7", "@8"]
+    widget_ids = ["@8", "@9"]
   }
   tab {
     name       = "Kanal Digital"
-    widget_ids = ["@9", "@10"]
+    widget_ids = ["@10", "@11"]
   }
 }
 

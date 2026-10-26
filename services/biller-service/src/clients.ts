@@ -88,10 +88,11 @@ export type PpobOutcome =
   | { kind: "unavailable" } // 503: nothing was charged
   | { kind: "timeout" }; // 504 or no answer: the biller may or may not have charged
 
-// Each call is its own span with the biller in the resource name, so APM shows
-// latency and errors per biller — the basis for per-partner SLOs.
+// Each call is its own client span with the biller in the resource name, so APM shows
+// latency and errors per biller — the basis for per-partner SLOs. peer.service makes each
+// biller an inferred service of its own (Service Map: biller-service -> ppob-ovo).
 export function ppob(op: "inquiry" | "payment", billerCode: string, body: Record<string, unknown>): Promise<PpobOutcome> {
-  return tracer.trace("ppob.request", { resource: `${op} ${billerCode}`, tags: { "partner.name": `ppob:${billerCode}`, "biller.code": billerCode, "span.kind": "client" } }, async (span): Promise<PpobOutcome> => {
+  return tracer.trace("ppob.request", { resource: `${op} ${billerCode}`, tags: { "partner.name": `ppob:${billerCode}`, "biller.code": billerCode, "span.kind": "client", "peer.service": `ppob-${billerCode}` } }, async (span): Promise<PpobOutcome> => {
     let res: CallResult;
     try {
       res = await call(config.partnerMockUrl, "POST", `/ppob/v1/${op}`, body, {}, config.partnerTimeoutMs);

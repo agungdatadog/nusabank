@@ -10,6 +10,7 @@ import (
 	"time"
 
 	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http/v2"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 const (
@@ -124,6 +125,26 @@ func (a accountClient) release(ctx context.Context, holdID string) error {
 
 type railClient struct{ *downstream }
 
+// partnerCall runs one rail call inside a client span tagged peer.service, so BI FAST and
+// SKN show up as inferred services of their own (Service Map: payment -> bifast) rather
+// than as one "partner-mock" host. A 5xx or transport error marks the span as an error.
+func (rc railClient) partnerCall(ctx context.Context, peer, operation, path string, body any) (callResult, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "partner.request",
+		tracer.ResourceName(peer+" "+operation), tracer.Tag("peer.service", peer),
+		tracer.Tag("partner.name", peer), tracer.Tag("span.kind", "client"))
+	res, err := rc.do(ctx, http.MethodPost, path, nil, body)
+	span.SetTag("http.status_code", res.status)
+	switch {
+	case err != nil:
+		span.Finish(tracer.WithError(err))
+	case res.status >= 500:
+		span.Finish(tracer.WithError(fmt.Errorf("%s responded %d", peer, res.status)))
+	default:
+		span.Finish()
+	}
+	return res, err
+}
+
 // railError maps a rail outage to 503 (unavailable) or 504-ish timeout as 503 with a
 // distinct code, naming the rail.
 func railError(partner string, res callResult, err error) *apiError {
@@ -135,7 +156,7 @@ func railError(partner string, res callResult, err error) *apiError {
 }
 
 func (rc railClient) inquiry(ctx context.Context, bankCode, account string) (string, error) {
-	res, err := rc.do(ctx, http.MethodPost, "/bifast/v1/account-inquiry", nil,
+	res, err := rc.partnerCall(ctx, partnerBIFAST, "account-inquiry", "/bifast/v1/account-inquiry",
 		map[string]string{"bank_code": bankCode, "account_number": account})
 	if err != nil || res.status >= 500 {
 		return "", railError(partnerBIFAST, res, err)
@@ -170,7 +191,7 @@ type railOutcome struct {
 }
 
 func (rc railClient) bifast(ctx context.Context, t railTransfer) (railOutcome, error) {
-	res, err := rc.do(ctx, http.MethodPost, "/bifast/v1/credit-transfer", nil, t)
+	res, err := rc.partnerCall(ctx, partnerBIFAST, "credit-transfer", "/bifast/v1/credit-transfer", t)
 	if err != nil || res.status >= 500 {
 		return railOutcome{}, railError(partnerBIFAST, res, err)
 	}
@@ -187,7 +208,7 @@ func (rc railClient) bifast(ctx context.Context, t railTransfer) (railOutcome, e
 }
 
 func (rc railClient) skn(ctx context.Context, t railTransfer) (railOutcome, error) {
-	res, err := rc.do(ctx, http.MethodPost, "/skn/v1/transfers", nil, t)
+	res, err := rc.partnerCall(ctx, partnerSKN, "transfer", "/skn/v1/transfers", t)
 	if err != nil || res.status >= 500 {
 		return railOutcome{}, railError(partnerSKN, res, err)
 	}
