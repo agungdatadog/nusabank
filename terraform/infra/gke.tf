@@ -34,6 +34,25 @@ resource "google_container_cluster" "nusabank" {
     channel = "REGULAR"
   }
 
+  # A node upgrade reschedules every pod; pods created before the Datadog admission webhook
+  # is back run without the tracer (2026-10-11 and 2026-10-23). No node or minor upgrades
+  # during the webinar series; control-plane patches still apply, in a quiet WIB window.
+  maintenance_policy {
+    recurring_window {
+      start_time = "2026-10-25T19:00:00Z" # Monday 02:00 WIB
+      end_time   = "2026-10-25T23:00:00Z"
+      recurrence = "FREQ=WEEKLY;BYDAY=SU"
+    }
+    maintenance_exclusion {
+      exclusion_name = "${var.name_prefix}-webinar-series"
+      start_time     = "2026-10-26T00:00:00Z"
+      end_time       = "2026-12-31T23:59:59Z"
+      exclusion_options {
+        scope = "NO_MINOR_OR_NODE_UPGRADES"
+      }
+    }
+  }
+
   ip_allocation_policy {
     cluster_secondary_range_name  = "pods"
     services_secondary_range_name = "services"

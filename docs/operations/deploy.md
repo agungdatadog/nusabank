@@ -94,6 +94,14 @@ visible in LLM Observability (`ml_app:nusabank-assistant`).
 share the password in Secret Manager `indowebinar-demo-operator-password`. Only transfers that
 FAILED with `RAIL_UNAVAILABLE` can be retried; every action lands in the audit log.
 
+## Upgrades and tracer injection
+
+GKE node and minor upgrades are excluded until 2026-12-31 (`terraform/infra/gke.tf`): every node
+upgrade reschedules all pods, and a pod created before the Datadog admission webhook is back runs
+without the tracer. `k8s/platform/ssi-guard.yaml` (CronJob, every 5 min) recreates such pods, one
+per service per run and only while another replica is Ready. Its log line `ssi guard run` reports
+`untraced`; anything above 0 for more than one run needs a look.
+
 ## Safety
 
 - `deletion_protection` is on for the cluster and all Cloud SQL instances.

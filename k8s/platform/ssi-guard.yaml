@@ -1,0 +1,128 @@
+# Self-healing for silent SSI misses. A pod created while the Datadog admission webhook is
+# unavailable (node upgrades: 2026-10-11, 2026-10-23) starts WITHOUT the tracer and stays that
+# way. Every 5 minutes this recreates such pods — one per service per run, and only while
+# another replica of that service is Ready, so it can never cause downtime.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ssi-guard
+  namespace: nusabank
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ssi-guard
+  namespace: nusabank
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ssi-guard
+  namespace: nusabank
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ssi-guard
+subjects:
+  - kind: ServiceAccount
+    name: ssi-guard
+    namespace: nusabank
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssi-guard
+  namespace: nusabank
+data:
+  guard.py: |
+    import json, ssl, urllib.request
+    from datetime import datetime, timezone
+
+    API = "https://kubernetes.default.svc/api/v1/namespaces/nusabank/pods"
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    TOKEN = open(f"{SA}/token").read()
+    CTX = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+    MIN_AGE_SECONDS = 180  # leave pods that are still starting alone
+
+    def call(method, url):
+        req = urllib.request.Request(url, method=method, headers={"Authorization": f"Bearer {TOKEN}"})
+        with urllib.request.urlopen(req, context=CTX, timeout=15) as r:
+            return json.load(r)
+
+    def log(**fields):
+        print(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "logger": "ssi-guard", **fields}), flush=True)
+
+    def traced(p):
+        return any("apm-inject" in c["name"] for c in p["spec"].get("initContainers", []))
+
+    def ready(p):
+        return any(c["type"] == "Ready" and c["status"] == "True" for c in p.get("status", {}).get("conditions", []))
+
+    pods = [p for p in call("GET", API + "?labelSelector=nusabank.io/lang")["items"] if not p["metadata"].get("deletionTimestamp")]
+    now = datetime.now(timezone.utc)
+    by_app = {}
+    for p in pods:
+        by_app.setdefault(p["metadata"]["labels"].get("app", "?"), []).append(p)
+    missing = 0
+    for app, group in sorted(by_app.items()):
+        bad = [p for p in group if not traced(p)]
+        if not bad:
+            continue
+        missing += len(bad)
+        victim = bad[0]
+        age = (now - datetime.fromisoformat(victim["metadata"]["creationTimestamp"].replace("Z", "+00:00"))).total_seconds()
+        healthy_peers = [p for p in group if p is not victim and ready(p)]
+        name = victim["metadata"]["name"]
+        if age < MIN_AGE_SECONDS or not healthy_peers:
+            log(message="untraced pod kept for now", app=app, pod=name, age_seconds=int(age), ready_peers=len(healthy_peers))
+            continue
+        call("DELETE", f"{API}/{name}")
+        log(message="recreating pod without the Datadog tracer", app=app, pod=name, age_seconds=int(age))
+    log(message="ssi guard run", pods=len(pods), untraced=missing)
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ssi-guard
+  namespace: nusabank
+  labels:
+    app: ssi-guard
+    app.kubernetes.io/name: ssi-guard
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app: ssi-guard
+            app.kubernetes.io/name: ssi-guard
+        spec:
+          serviceAccountName: ssi-guard
+          restartPolicy: Never
+          containers:
+            - name: guard
+              image: python:3.13.9-slim-bookworm
+              command: ["python", "/guard/guard.py"]
+              resources:
+                requests: { cpu: 20m, memory: 32Mi }
+                limits: { cpu: 200m, memory: 96Mi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: guard, mountPath: /guard }
+          volumes:
+            - name: guard
+              configMap: { name: ssi-guard }
