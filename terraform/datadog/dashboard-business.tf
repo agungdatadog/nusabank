@@ -1,9 +1,12 @@
-# EP1 "complete picture": one dashboard, one tab per business line. Each tab pairs the
-# business view (DogStatsD nusabank.* metrics, amounts as values in IDR) with the technical
-# view of the services behind it (APM trace metrics), so a dip in one explains the other.
-# Server-span operation names differ per runtime: Go http.request, Node hono.request,
-# Java servlet.request. payment-service's http.request also covers its outbound calls,
-# so its widgets filter on server resources.
+# EP1 "SEE": one dashboard for the whole bank. The Overview tab shows every layer at once —
+# health score and SLOs, monitors, business KPIs, APM, infrastructure, databases, event
+# streaming, logs, frontend (RUM), Synthetics, network, security and the AI assistant. The
+# other tabs go deep per business line, pairing business metrics (DogStatsD nusabank.*,
+# amounts as values in IDR) with the APM view of the services behind them.
+# Server-span operations differ per runtime: Go http.request, Node hono.request, Java
+# servlet.request. payment-service's http.request also covers its outbound calls, so its
+# widgets filter on server resources. Error counts use default_zero(): a healthy service
+# emits no error points, which would show as "No data".
 
 locals {
   env = "env:demo"
@@ -16,24 +19,161 @@ locals {
   loan_sim    = "service:nusabank-loan,resource_name:post_/api/loans/simulations,env:demo"
   loan_submit = "service:nusabank-loan,resource_name:post_/api/loans/applications/_applicationid_/submit,env:demo"
   login       = "service:nusabank-auth,resource_name:post_/api/auth/login,env:demo"
+  # payment-service server requests only (its http.request also covers outbound calls).
+  pay_server = "service:nusabank-payment,!resource_name:http.request,env:demo"
+
+  # Digital Banking Health Score: weighted SLO statuses; money-moving journeys weigh most.
+  health_weights = [
+    { name = "a", weight = 0.30, id = datadog_service_level_objective.journey_availability["transfer"].id, type = "metric" },
+    { name = "b", weight = 0.25, id = datadog_service_level_objective.journey_availability["tagihan"].id, type = "metric" },
+    { name = "c", weight = 0.15, id = datadog_service_level_objective.journey_availability["login"].id, type = "metric" },
+    { name = "d", weight = 0.10, id = datadog_service_level_objective.journey_availability["saldo"].id, type = "metric" },
+    { name = "e", weight = 0.10, id = datadog_service_level_objective.journey_latency["transfer"].id, type = "time_slice" },
+    { name = "f", weight = 0.10, id = datadog_service_level_objective.journey_latency["tagihan"].id, type = "time_slice" },
+  ]
 }
 
 resource "datadog_dashboard" "business" {
-  title       = "Nusa Bank — Bisnis & Teknologi"
-  description = "EP1: nilai bisnis (transfer, top up & tagihan, kredit, kanal digital) berdampingan dengan performa layanan yang menjalankannya. Managed by Terraform (terraform/datadog)."
+  title       = "Nusa Bank — Business & Technology Overview"
+  description = "EP1 \"SEE\": the whole bank on one dashboard — business value next to the APM, infrastructure, database, streaming, logs, RUM, Synthetics, network, security and AI layers that deliver it. Managed by Terraform (terraform/datadog)."
   layout_type = "ordered"
   reflow_type = "auto"
   tags        = ["team:nusabank"]
 
-  # ───────────────────────────── 1. Ringkasan ─────────────────────────────
+  # ═════════════════════════════ TAB 1 · OVERVIEW ═════════════════════════════
+
+  # @1
   widget {
     group_definition {
-      title       = "Bisnis hari ini"
-      layout_type = "ordered"
+      title            = "Health at a glance"
+      layout_type      = "ordered"
+      background_color = "vivid_blue"
 
       widget {
         query_value_definition {
-          title       = "Nilai transfer keluar"
+          title     = "Digital Banking Health Score"
+          precision = 2
+          request {
+            formula {
+              formula_expression = join(" + ", [for h in local.health_weights : "${h.weight} * ${h.name}"])
+              conditional_formats {
+                comparator = ">="
+                value      = 99.9
+                palette    = "white_on_green"
+              }
+              conditional_formats {
+                comparator = ">="
+                value      = 99
+                palette    = "white_on_yellow"
+              }
+              conditional_formats {
+                comparator = "<"
+                value      = 99
+                palette    = "white_on_red"
+              }
+            }
+            dynamic "query" {
+              for_each = local.health_weights
+              content {
+                slo_query {
+                  name           = query.value.name
+                  data_source    = "slo"
+                  slo_id         = query.value.id
+                  measure        = "slo_status"
+                  slo_query_type = query.value.type
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        service_level_objective_definition {
+          title             = "Critical journeys SLO"
+          slo_id            = datadog_service_level_objective.digital_banking.id
+          view_type         = "detail"
+          view_mode         = "overall"
+          time_windows      = ["7d", "30d"]
+          show_error_budget = true
+        }
+      }
+      widget {
+        manage_status_definition {
+          title               = "Monitor status"
+          query               = "tag:team:nusabank"
+          summary_type        = "monitors"
+          display_format      = "counts"
+          color_preference    = "background"
+          hide_zero_counts    = false
+          show_last_triggered = false
+          sort                = "status,asc"
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "API requests"
+          precision = 0
+          request {
+            q          = "sum:trace.hono.request.hits{${local.env}}.as_count() + sum:trace.servlet.request.hits{${local.env}}.as_count() + sum:trace.http.request.hits{${local.pay_server}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "API error rate"
+          precision   = 3
+          custom_unit = "%"
+          request {
+            q          = "100 * (default_zero(sum:trace.hono.request.errors{${local.env}}.as_count()) + default_zero(sum:trace.servlet.request.errors{${local.env}}.as_count()) + default_zero(sum:trace.http.request.errors{${local.pay_server}}.as_count())) / (sum:trace.hono.request.hits{${local.env}}.as_count() + sum:trace.servlet.request.hits{${local.env}}.as_count() + sum:trace.http.request.hits{${local.pay_server}}.as_count())"
+            aggregator = "sum"
+            conditional_formats {
+              comparator = "<"
+              value      = 1
+              palette    = "white_on_green"
+            }
+            conditional_formats {
+              comparator = ">="
+              value      = 1
+              palette    = "white_on_red"
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Transfer submission p95"
+          precision   = 0
+          custom_unit = "ms"
+          request {
+            q          = "1000 * p95:trace.http.request{${local.pay_create}}"
+            aggregator = "avg"
+            conditional_formats {
+              comparator = "<"
+              value      = 1000
+              palette    = "white_on_green"
+            }
+            conditional_formats {
+              comparator = ">="
+              value      = 1000
+              palette    = "white_on_yellow"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # @2
+  widget {
+    group_definition {
+      title            = "Business KPIs"
+      layout_type      = "ordered"
+      background_color = "vivid_green"
+
+      widget {
+        query_value_definition {
+          title       = "Outgoing transfer value"
           precision   = 0
           custom_unit = "Rp"
           request {
@@ -44,7 +184,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         query_value_definition {
-          title     = "Transaksi transfer"
+          title     = "Transfers"
           precision = 0
           request {
             q          = "sum:nusabank.transfer.count{${local.env}}.as_count()"
@@ -54,28 +194,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         query_value_definition {
-          title       = "Transfer berhasil"
-          precision   = 2
-          custom_unit = "%"
-          request {
-            q          = "100 * sum:nusabank.transfer.count{${local.env},status:success}.as_count() / sum:nusabank.transfer.count{${local.env}}.as_count()"
-            aggregator = "sum"
-            conditional_formats {
-              comparator = ">="
-              value      = 99
-              palette    = "white_on_green"
-            }
-            conditional_formats {
-              comparator = "<"
-              value      = 99
-              palette    = "white_on_red"
-            }
-          }
-        }
-      }
-      widget {
-        query_value_definition {
-          title       = "Nilai top up & tagihan"
+          title       = "Top-up & bill payment value"
           precision   = 0
           custom_unit = "Rp"
           request {
@@ -86,28 +205,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         query_value_definition {
-          title       = "Top up & tagihan berhasil"
-          precision   = 2
-          custom_unit = "%"
-          request {
-            q          = "100 * sum:nusabank.biller.payment.count{${local.env},status:success}.as_count() / sum:nusabank.biller.payment.count{${local.env}}.as_count()"
-            aggregator = "sum"
-            conditional_formats {
-              comparator = ">="
-              value      = 98
-              palette    = "white_on_green"
-            }
-            conditional_formats {
-              comparator = "<"
-              value      = 98
-              palette    = "white_on_red"
-            }
-          }
-        }
-      }
-      widget {
-        query_value_definition {
-          title       = "Kredit diajukan"
+          title       = "Loan principal applied"
           precision   = 0
           custom_unit = "Rp"
           request {
@@ -118,7 +216,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         query_value_definition {
-          title     = "Rekening baru disetujui"
+          title     = "New accounts approved"
           precision = 0
           request {
             q          = "sum:nusabank.onboarding.step.count{${local.env},step:approved}.as_count()"
@@ -128,14 +226,14 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Transaksi per menit — transfer vs top up & tagihan"
+          title       = "Transactions per minute — transfers vs top-ups & bills"
           show_legend = true
           request {
             q            = "sum:nusabank.transfer.count{${local.env}}.as_count().rollup(sum, 60)"
             display_type = "bars"
             metadata {
               expression = "sum:nusabank.transfer.count{${local.env}}.as_count().rollup(sum, 60)"
-              alias_name = "Transfer"
+              alias_name = "Transfers"
             }
           }
           request {
@@ -143,113 +241,95 @@ resource "datadog_dashboard" "business" {
             display_type = "bars"
             metadata {
               expression = "sum:nusabank.biller.payment.count{${local.env}}.as_count().rollup(sum, 60)"
-              alias_name = "Top up & tagihan"
+              alias_name = "Top-ups & bills"
             }
+          }
+        }
+      }
+      widget {
+        sunburst_definition {
+          title = "Transfer value by rail"
+          request {
+            q = "sum:nusabank.transfer.amount{${local.env},status:success} by {rail}.as_count()"
+          }
+        }
+      }
+      widget {
+        sunburst_definition {
+          title = "Top-ups & bills by category"
+          request {
+            q = "sum:nusabank.biller.payment.count{${local.env}} by {category}.as_count()"
           }
         }
       }
     }
   }
 
+  # @3
   widget {
     group_definition {
-      title       = "Kesehatan layanan"
-      layout_type = "ordered"
+      title            = "APM — services and dependencies"
+      layout_type      = "ordered"
+      background_color = "vivid_purple"
 
       widget {
+        servicemap_definition {
+          title   = "payment-service map"
+          service = "nusabank-payment"
+          filters = ["env:demo"]
+        }
+      }
+      widget {
         timeseries_definition {
-          title       = "Latensi p95 alur utama (detik)"
+          title       = "Requests by service and version"
           show_legend = true
           request {
-            q            = "p95:trace.http.request{${local.pay_create}}"
-            display_type = "line"
-            metadata {
-              expression = "p95:trace.http.request{${local.pay_create}}"
-              alias_name = "Kirim transfer"
-            }
+            q            = "sum:trace.hono.request.hits{${local.env}} by {service,version}.as_count()"
+            display_type = "bars"
           }
           request {
-            q            = "p95:trace.hono.request{${local.bill_pay}}"
-            display_type = "line"
-            metadata {
-              expression = "p95:trace.hono.request{${local.bill_pay}}"
-              alias_name = "Bayar tagihan"
-            }
-          }
-          request {
-            q            = "p95:trace.hono.request{${local.login}}"
-            display_type = "line"
-            metadata {
-              expression = "p95:trace.hono.request{${local.login}}"
-              alias_name = "Login"
-            }
+            q            = "sum:trace.servlet.request.hits{${local.env}} by {service,version}.as_count()"
+            display_type = "bars"
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Error rate API per layanan (%)"
+          title       = "Errors by service"
           show_legend = true
           request {
-            q            = "100 * default_zero(sum:trace.servlet.request.errors{${local.env}} by {service}.as_count()) / sum:trace.servlet.request.hits{${local.env}} by {service}.as_count()"
-            display_type = "line"
+            q            = "default_zero(sum:trace.hono.request.errors{${local.env}} by {service}.as_count())"
+            display_type = "bars"
           }
           request {
-            q            = "100 * default_zero(sum:trace.hono.request.errors{${local.env}} by {service}.as_count()) / sum:trace.hono.request.hits{${local.env}} by {service}.as_count()"
-            display_type = "line"
+            q            = "default_zero(sum:trace.servlet.request.errors{${local.env}} by {service}.as_count())"
+            display_type = "bars"
           }
           request {
-            q            = "100 * default_zero(sum:trace.http.request.errors{service:nusabank-payment,${local.env}}.as_count()) / sum:trace.http.request.hits{service:nusabank-payment,${local.env}}.as_count()"
-            display_type = "line"
-            metadata {
-              expression = "100 * default_zero(sum:trace.http.request.errors{service:nusabank-payment,${local.env}}.as_count()) / sum:trace.http.request.hits{service:nusabank-payment,${local.env}}.as_count()"
-              alias_name = "service:nusabank-payment"
-            }
-          }
-        }
-      }
-      widget {
-        query_table_definition {
-          title = "Request per jam per layanan (rata-rata)"
-          request {
-            q          = "avg:trace.servlet.request.hits{${local.env}} by {service}.as_rate() * 3600"
-            aggregator = "avg"
-            alias      = "Java (servlet)"
-          }
-          request {
-            q          = "avg:trace.hono.request.hits{${local.env}} by {service}.as_rate() * 3600"
-            aggregator = "avg"
-            alias      = "Node (hono)"
-          }
-        }
-      }
-    }
-  }
-
-  widget {
-    group_definition {
-      title       = "Partner pihak ketiga (peer.service)"
-      layout_type = "ordered"
-
-      widget {
-        toplist_definition {
-          title = "Latensi p95 per biller lewat agregator PPOB (detik)"
-          request {
-            q = "top(p95:trace.ppob.request{${local.env}} by {peer.service}, 20, 'mean', 'desc')"
+            q            = "default_zero(sum:trace.http.request.errors{${local.pay_server}} by {service}.as_count())"
+            display_type = "bars"
           }
         }
       }
       widget {
         toplist_definition {
-          title = "Latensi p95 rail & biro kredit (detik)"
+          title = "p95 latency by endpoint — Node services (s)"
           request {
-            q = "top(p95:trace.partner.request{${local.env}} by {peer.service}, 10, 'mean', 'desc')"
+            q = "top(p95:trace.hono.request{${local.env}} by {service,resource_name}, 10, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Third-party p95 latency — PPOB billers (s)"
+          request {
+            q = "top(p95:trace.ppob.request{${local.env}} by {peer.service}, 16, 'mean', 'desc')"
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Error rate per partner (%)"
+          title       = "Third-party error rate (%)"
           show_legend = true
           request {
             q            = "100 * default_zero(sum:trace.ppob.request.errors{${local.env}} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{${local.env}} by {peer.service}.as_count()"
@@ -264,15 +344,530 @@ resource "datadog_dashboard" "business" {
     }
   }
 
-  # ───────────────────────────── 2. Transfer ─────────────────────────────
+  # @4
   widget {
     group_definition {
-      title       = "Transfer — bisnis"
+      title            = "Infrastructure — GKE indowebinar-gke"
+      layout_type      = "ordered"
+      background_color = "vivid_yellow"
+
+      widget {
+        hostmap_definition {
+          title           = "Nodes by CPU"
+          node_type       = "host"
+          scope           = ["kube_cluster_name:indowebinar-gke"]
+          no_group_hosts  = true
+          no_metric_hosts = true
+          request {
+            fill {
+              q = "avg:system.cpu.user{kube_cluster_name:indowebinar-gke} by {host}"
+            }
+          }
+          style {
+            palette = "green_to_orange"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "CPU by deployment (cores)"
+          show_legend = false
+          request {
+            q            = "sum:kubernetes.cpu.usage.total{kube_namespace:nusabank} by {kube_deployment} / 1000000000"
+            display_type = "area"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Memory by deployment"
+          show_legend = false
+          request {
+            q            = "sum:kubernetes.memory.usage{kube_namespace:nusabank} by {kube_deployment}"
+            display_type = "area"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Pods ready"
+          precision = 0
+          request {
+            q          = "sum:kubernetes_state.pod.ready{kube_namespace:nusabank}"
+            aggregator = "last"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Container restarts by deployment"
+          request {
+            q = "top(sum:kubernetes.containers.restarts{kube_namespace:nusabank} by {kube_deployment}, 10, 'max', 'desc')"
+          }
+        }
+      }
+    }
+  }
+
+  # @5
+  widget {
+    group_definition {
+      title            = "Databases — Postgres, MySQL, MongoDB (DBM)"
+      layout_type      = "ordered"
+      background_color = "vivid_orange"
+
+      widget {
+        timeseries_definition {
+          title       = "Postgres queries per instance"
+          show_legend = true
+          request {
+            q            = "sum:postgresql.queries.count{*} by {dbinstance}.as_rate()"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Postgres connections"
+          show_legend = true
+          request {
+            q            = "avg:postgresql.connections{*} by {dbinstance}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "MySQL queries & connections (partner DB)"
+          show_legend = true
+          request {
+            q            = "avg:mysql.performance.queries{*} by {dbinstance}"
+            display_type = "line"
+          }
+          request {
+            q            = "avg:mysql.net.connections{*} by {dbinstance}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "MongoDB operations & connections (chat)"
+          show_legend = true
+          request {
+            q            = "avg:mongodb.opcounters.queryps{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mongodb.opcounters.queryps{*}"
+              alias_name = "queries/s"
+            }
+          }
+          request {
+            q            = "avg:mongodb.connections.current{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mongodb.connections.current{*}"
+              alias_name = "connections"
+            }
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Cloud SQL CPU utilization (%)"
+          request {
+            q = "top(100 * avg:gcp.cloudsql.database.cpu.utilization{database_id:datadog-ese-sandbox:indowebinar-*} by {database_id}, 5, 'mean', 'desc')"
+          }
+        }
+      }
+    }
+  }
+
+  # @6
+  widget {
+    group_definition {
+      title            = "Event streaming — Kafka (Data Streams Monitoring)"
+      layout_type      = "ordered"
+      background_color = "vivid_pink"
+
+      widget {
+        timeseries_definition {
+          title       = "Consumer lag (s) by consumer group"
+          show_legend = true
+          request {
+            q            = "max:data_streams.kafka.lag_seconds{${local.env}} by {consumer_group}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "End-to-end pipeline latency (s)"
+          show_legend = true
+          request {
+            q            = "avg:data_streams.latency{${local.env}} by {pathway_type}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Messages by topic"
+          request {
+            q = "top(sum:data_streams.payload_size{${local.env}} by {topic}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
+    }
+  }
+
+  # @7
+  widget {
+    group_definition {
+      title            = "Logs — application services"
+      layout_type      = "ordered"
+      background_color = "vivid_green"
+
+      widget {
+        timeseries_definition {
+          title       = "Log volume by service"
+          show_legend = false
+          request {
+            display_type = "bars"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo service:nusabank-*"
+                }
+                group_by {
+                  facet = "service"
+                  limit = 15
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        log_stream_definition {
+          title               = "Application warnings and errors"
+          query               = "env:demo service:nusabank-* status:(warn OR error)"
+          indexes             = ["*"]
+          columns             = ["service", "host"]
+          show_date_column    = true
+          show_message_column = true
+          message_display     = "expanded-md"
+          sort {
+            column = "time"
+            order  = "desc"
+          }
+        }
+      }
+    }
+  }
+
+  # @8
+  widget {
+    group_definition {
+      title            = "Frontend — Real User Monitoring"
+      layout_type      = "ordered"
+      background_color = "vivid_blue"
+
+      widget {
+        query_value_definition {
+          title     = "Sessions"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:session"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Sessions with a known customer"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:session @usr.id:*"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Page views by page"
+          show_legend = true
+          request {
+            display_type = "bars"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:view"
+                }
+                group_by {
+                  facet = "@view.url_path_group"
+                  limit = 8
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Page load time p75 (s)"
+          show_legend = false
+          request {
+            display_type = "line"
+            formula {
+              formula_expression = "query1 / 1000000000"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "pc75"
+                  metric      = "@view.loading_time"
+                }
+                search {
+                  query = "@type:view"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Sessions by customer segment"
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:session @usr.segment:*"
+                }
+                group_by {
+                  facet = "@usr.segment"
+                  limit = 5
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Frontend errors"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # @9
+  widget {
+    group_definition {
+      title            = "Synthetics, network and edge"
+      layout_type      = "ordered"
+      background_color = "vivid_purple"
+
+      widget {
+        timeseries_definition {
+          title       = "Synthetic API response time by location (s)"
+          show_legend = true
+          request {
+            q            = "avg:synthetics.http.response.time{*} by {location}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Synthetic test runs by status"
+          show_legend = true
+          request {
+            q            = "sum:synthetics.test_runs{*} by {status}.as_count()"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Load balancer requests (HTTPS)"
+          show_legend = false
+          request {
+            q            = "sum:gcp.loadbalancing.https.request_count{*}.as_count()"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Network received by deployment (bytes/s)"
+          show_legend = false
+          request {
+            q            = "sum:kubernetes.network.rx_bytes{kube_namespace:nusabank} by {kube_deployment}"
+            display_type = "area"
+          }
+        }
+      }
+    }
+  }
+
+  # @10
+  widget {
+    group_definition {
+      title            = "Security and AI assistant"
+      layout_type      = "ordered"
+      background_color = "vivid_orange"
+
+      widget {
+        timeseries_definition {
+          title       = "App & API Protection — security events by service"
+          show_legend = true
+          request {
+            display_type = "bars"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "spans"
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo @appsec.event:true"
+                }
+                group_by {
+                  facet = "service"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "AI assistant conversations (LLM Observability)"
+          precision = 0
+          request {
+            q          = "sum:ml_obs.trace{ml_app:nusabank-assistant}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "AI assistant turn duration (s)"
+          show_legend = false
+          request {
+            q            = "avg:ml_obs.trace.duration{ml_app:nusabank-assistant}"
+            display_type = "line"
+          }
+        }
+      }
+    }
+  }
+
+  # ═════════════════════════════ TAB 2 · TRANSFERS ═════════════════════════════
+
+  # @11
+  widget {
+    group_definition {
+      title       = "Transfers — business"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Jumlah transfer per channel (per jam)"
+          title       = "Transfers by rail (per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.transfer.count{${local.env}} by {rail}.as_count().rollup(sum, 3600)"
@@ -282,7 +877,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Nilai transfer per channel (Rp per jam)"
+          title       = "Transfer value by rail (Rp per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.transfer.amount{${local.env},status:success} by {rail}.as_count().rollup(sum, 3600)"
@@ -292,7 +887,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "Bank tujuan — jumlah transfer (BI FAST & SKN)"
+          title = "Destination banks — transfer count (BI FAST & SKN)"
           request {
             q = "top(sum:nusabank.transfer.count{${local.env},!rail:intrabank} by {destination_bank}.as_count(), 12, 'sum', 'desc')"
           }
@@ -300,7 +895,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "Bank tujuan — nilai transfer (Rp)"
+          title = "Destination banks — transfer value (Rp)"
           request {
             q = "top(sum:nusabank.transfer.amount{${local.env},status:success,!rail:intrabank} by {destination_bank}.as_count(), 12, 'sum', 'desc')"
           }
@@ -308,34 +903,34 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         query_table_definition {
-          title = "Per channel: transaksi, nilai, tingkat berhasil"
+          title = "By rail: transfers, value, success rate"
           request {
             q          = "sum:nusabank.transfer.count{${local.env}} by {rail}.as_count()"
             aggregator = "sum"
-            alias      = "Transaksi"
+            alias      = "Transfers"
           }
           request {
             q          = "sum:nusabank.transfer.amount{${local.env},status:success} by {rail}.as_count()"
             aggregator = "sum"
-            alias      = "Nilai (Rp)"
+            alias      = "Value (Rp)"
           }
           request {
             q          = "100 * sum:nusabank.transfer.count{${local.env},status:success} by {rail}.as_count() / sum:nusabank.transfer.count{${local.env}} by {rail}.as_count()"
             aggregator = "sum"
-            alias      = "Berhasil (%)"
+            alias      = "Success (%)"
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Dana keluar vs dana masuk (Rp per jam)"
+          title       = "Money out vs money in (Rp per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.transfer.amount{${local.env},status:success}.as_count().rollup(sum, 3600)"
             display_type = "bars"
             metadata {
               expression = "sum:nusabank.transfer.amount{${local.env},status:success}.as_count().rollup(sum, 3600)"
-              alias_name = "Keluar"
+              alias_name = "Outgoing"
             }
           }
           request {
@@ -343,7 +938,7 @@ resource "datadog_dashboard" "business" {
             display_type = "bars"
             metadata {
               expression = "sum:nusabank.transfer.inbound.amount{${local.env}}.as_count().rollup(sum, 3600)"
-              alias_name = "Masuk"
+              alias_name = "Incoming"
             }
           }
         }
@@ -351,14 +946,15 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # @12
   widget {
     group_definition {
-      title       = "Transfer — teknologi (payment-service, BI FAST, SKN)"
+      title       = "Transfers — technology (payment-service, BI FAST, SKN)"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Transfer dikirim per detik (TPS)"
+          title       = "Transfers submitted per second (TPS)"
           show_legend = false
           request {
             q            = "sum:trace.http.request.hits{${local.pay_create}}.as_rate()"
@@ -368,14 +964,14 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Latensi kirim transfer & inquiry (detik)"
+          title       = "Transfer submission & inquiry latency (s)"
           show_legend = true
           request {
             q            = "avg:trace.http.request{${local.pay_create}}"
             display_type = "line"
             metadata {
               expression = "avg:trace.http.request{${local.pay_create}}"
-              alias_name = "Kirim transfer — avg"
+              alias_name = "Submit — avg"
             }
           }
           request {
@@ -383,7 +979,7 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "p95:trace.http.request{${local.pay_create}}"
-              alias_name = "Kirim transfer — p95"
+              alias_name = "Submit — p95"
             }
           }
           request {
@@ -391,14 +987,14 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "p95:trace.http.request{${local.pay_inquiry}}"
-              alias_name = "Inquiry rekening tujuan — p95"
+              alias_name = "Beneficiary inquiry — p95"
             }
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Error rate kirim transfer (%)"
+          title       = "Transfer submission error rate (%)"
           show_legend = false
           request {
             q            = "100 * default_zero(sum:trace.http.request.errors{${local.pay_create}}.as_count()) / sum:trace.http.request.hits{${local.pay_create}}.as_count()"
@@ -408,10 +1004,10 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Latensi p95 partner: BI FAST & SKN (detik)"
+          title       = "Rail p95 latency: BI FAST & SKN (s)"
           show_legend = true
           request {
-            q            = "p95:trace.http.request{service:nusabank-partner-mock,${local.env}} by {resource_name}"
+            q            = "p95:trace.partner.request{${local.env},!peer.service:credit-bureau} by {peer.service}"
             display_type = "line"
           }
         }
@@ -419,15 +1015,17 @@ resource "datadog_dashboard" "business" {
     }
   }
 
-  # ───────────────────────────── 3. Top Up & Tagihan ─────────────────────────────
+  # ═════════════════════════════ TAB 3 · PAYMENTS & TOP-UPS ═════════════════════════════
+
+  # @13
   widget {
     group_definition {
-      title       = "Top up & tagihan — bisnis"
+      title       = "Payments & top-ups — business"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Transaksi per kategori (per jam)"
+          title       = "Transactions by category (per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.biller.payment.count{${local.env}} by {category}.as_count().rollup(sum, 3600)"
@@ -436,36 +1034,46 @@ resource "datadog_dashboard" "business" {
         }
       }
       widget {
-        toplist_definition {
-          title = "Nilai per biller (Rp)"
+        treemap_definition {
+          title = "Value by biller (Rp)"
           request {
-            q = "top(sum:nusabank.biller.payment.amount{${local.env},status:success} by {biller}.as_count(), 16, 'sum', 'desc')"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              metric_query {
+                name        = "query1"
+                data_source = "metrics"
+                query       = "sum:nusabank.biller.payment.amount{${local.env},status:success} by {biller}.as_count()"
+                aggregator  = "sum"
+              }
+            }
           }
         }
       }
       widget {
         query_table_definition {
-          title = "Per biller: transaksi, nilai, tingkat berhasil"
+          title = "By biller: transactions, value, success rate"
           request {
             q          = "sum:nusabank.biller.payment.count{${local.env}} by {biller}.as_count()"
             aggregator = "sum"
-            alias      = "Transaksi"
+            alias      = "Transactions"
           }
           request {
             q          = "sum:nusabank.biller.payment.amount{${local.env},status:success} by {biller}.as_count()"
             aggregator = "sum"
-            alias      = "Nilai (Rp)"
+            alias      = "Value (Rp)"
           }
           request {
             q          = "100 * sum:nusabank.biller.payment.count{${local.env},status:success} by {biller}.as_count() / sum:nusabank.biller.payment.count{${local.env}} by {biller}.as_count()"
             aggregator = "sum"
-            alias      = "Berhasil (%)"
+            alias      = "Success (%)"
           }
         }
       }
       widget {
         toplist_definition {
-          title = "Rata-rata nilai per transaksi per kategori (Rp)"
+          title = "Average ticket by category (Rp)"
           request {
             q = "top(avg:nusabank.biller.payment.amount{${local.env},status:success} by {category}, 8, 'mean', 'desc')"
           }
@@ -474,21 +1082,22 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # @14
   widget {
     group_definition {
-      title       = "Top up & tagihan — teknologi (biller-service, agregator PPOB)"
+      title       = "Payments & top-ups — technology (biller-service, PPOB aggregator)"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Pembayaran per detik & error rate (%)"
+          title       = "Payments per second & error rate (%)"
           show_legend = true
           request {
             q            = "sum:trace.hono.request.hits{${local.bill_pay}}.as_rate()"
             display_type = "line"
             metadata {
               expression = "sum:trace.hono.request.hits{${local.bill_pay}}.as_rate()"
-              alias_name = "Pembayaran / detik"
+              alias_name = "Payments / s"
             }
           }
           request {
@@ -503,7 +1112,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Latensi inquiry & bayar (detik)"
+          title       = "Inquiry & payment latency (s)"
           show_legend = true
           request {
             q            = "p95:trace.hono.request{${local.bill_inq}}"
@@ -518,7 +1127,7 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "avg:trace.hono.request{${local.bill_pay}}"
-              alias_name = "Bayar — avg"
+              alias_name = "Payment — avg"
             }
           }
           request {
@@ -526,22 +1135,22 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "p95:trace.hono.request{${local.bill_pay}}"
-              alias_name = "Bayar — p95"
+              alias_name = "Payment — p95"
             }
           }
         }
       }
       widget {
-        toplist_definition {
-          title = "Latensi p95 per biller di agregator PPOB (detik)"
+        heatmap_definition {
+          title = "PPOB call latency by biller (s)"
           request {
-            q = "top(p95:trace.ppob.request{service:nusabank-biller,${local.env}} by {resource_name}, 16, 'mean', 'desc')"
+            q = "avg:trace.ppob.request{${local.env}} by {peer.service}"
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Error rate panggilan ke agregator PPOB (%)"
+          title       = "PPOB aggregator error rate (%)"
           show_legend = false
           request {
             q            = "100 * default_zero(sum:trace.ppob.request.errors{service:nusabank-biller,${local.env}}.as_count()) / sum:trace.ppob.request.hits{service:nusabank-biller,${local.env}}.as_count()"
@@ -552,40 +1161,42 @@ resource "datadog_dashboard" "business" {
     }
   }
 
-  # ───────────────────────────── 4. Kredit ─────────────────────────────
+  # ═════════════════════════════ TAB 4 · LOANS ═════════════════════════════
+
+  # @15
   widget {
     group_definition {
-      title       = "Kredit — bisnis"
+      title       = "Loans — business"
       layout_type = "ordered"
 
       widget {
         query_table_definition {
-          title = "Pengajuan per produk dan tahap"
+          title = "Applications by product and stage"
           request {
             q          = "sum:nusabank.loan.application.count{${local.env},stage:submitted} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Diajukan"
+            alias      = "Submitted"
           }
           request {
             q          = "sum:nusabank.loan.application.count{${local.env},stage:approved} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Disetujui"
+            alias      = "Approved"
           }
           request {
             q          = "sum:nusabank.loan.application.count{${local.env},stage:rejected} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Ditolak"
+            alias      = "Rejected"
           }
           request {
             q          = "sum:nusabank.loan.application.count{${local.env},stage:disbursed} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Dicairkan"
+            alias      = "Disbursed"
           }
         }
       }
       widget {
         toplist_definition {
-          title = "Nilai pokok diajukan per produk (Rp)"
+          title = "Principal applied by product (Rp)"
           request {
             q = "top(sum:nusabank.loan.application.amount{${local.env},stage:submitted} by {product}.as_count(), 3, 'sum', 'desc')"
           }
@@ -593,7 +1204,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "Nilai pokok dicairkan per produk (Rp)"
+          title = "Principal disbursed by product (Rp)"
           request {
             q = "top(sum:nusabank.loan.application.amount{${local.env},stage:disbursed} by {product}.as_count(), 3, 'sum', 'desc')"
           }
@@ -601,7 +1212,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Simulasi kredit per produk (per jam)"
+          title       = "Loan simulations by product (per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.loan.simulation.count{${local.env}} by {product}.as_count().rollup(sum, 3600)"
@@ -612,21 +1223,22 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # @16
   widget {
     group_definition {
-      title       = "Kredit — teknologi (loan-service, biro kredit)"
+      title       = "Loans — technology (loan-service, credit bureau)"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Latensi simulasi & keputusan kredit (detik)"
+          title       = "Simulation & credit decision latency (s)"
           show_legend = true
           request {
             q            = "p95:trace.servlet.request{${local.loan_sim}}"
             display_type = "line"
             metadata {
               expression = "p95:trace.servlet.request{${local.loan_sim}}"
-              alias_name = "Simulasi — p95"
+              alias_name = "Simulation — p95"
             }
           }
           request {
@@ -634,29 +1246,29 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "p95:trace.servlet.request{${local.loan_submit}}"
-              alias_name = "Submit (keputusan) — p95"
+              alias_name = "Submit (decision) — p95"
             }
           }
           request {
-            q            = "p95:trace.http.request{service:nusabank-loan,resource_name:post_/credit-bureau/v1/checks,${local.env}}"
+            q            = "p95:trace.partner.request{peer.service:credit-bureau,${local.env}}"
             display_type = "line"
             metadata {
-              expression = "p95:trace.http.request{service:nusabank-loan,resource_name:post_/credit-bureau/v1/checks,${local.env}}"
-              alias_name = "Biro kredit — p95"
+              expression = "p95:trace.partner.request{peer.service:credit-bureau,${local.env}}"
+              alias_name = "Credit bureau — p95"
             }
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Request & error loan-service"
+          title       = "loan-service requests & errors"
           show_legend = true
           request {
             q            = "sum:trace.servlet.request.hits{service:nusabank-loan,${local.env}}.as_count()"
             display_type = "bars"
             metadata {
               expression = "sum:trace.servlet.request.hits{service:nusabank-loan,${local.env}}.as_count()"
-              alias_name = "Request"
+              alias_name = "Requests"
             }
           }
           request {
@@ -664,7 +1276,7 @@ resource "datadog_dashboard" "business" {
             display_type = "bars"
             metadata {
               expression = "default_zero(sum:trace.servlet.request.errors{service:nusabank-loan,${local.env}}.as_count())"
-              alias_name = "Error"
+              alias_name = "Errors"
             }
           }
         }
@@ -672,19 +1284,21 @@ resource "datadog_dashboard" "business" {
     }
   }
 
-  # ───────────────────────────── 5. Kanal Digital ─────────────────────────────
+  # ═════════════════════════════ TAB 5 · DIGITAL CHANNELS ═════════════════════════════
+
+  # @17
   widget {
     group_definition {
-      title       = "Kanal digital — bisnis"
+      title       = "Digital channels — business"
       layout_type = "ordered"
 
       widget {
         query_table_definition {
-          title = "Funnel buka rekening per produk"
+          title = "Account opening funnel by product"
           request {
             q          = "sum:nusabank.onboarding.step.count{${local.env},step:started} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Mulai"
+            alias      = "Started"
           }
           request {
             q          = "sum:nusabank.onboarding.step.count{${local.env},step:ekyc_submitted} by {product}.as_count()"
@@ -694,23 +1308,23 @@ resource "datadog_dashboard" "business" {
           request {
             q          = "sum:nusabank.onboarding.step.count{${local.env},step:submitted} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Submit"
+            alias      = "Submitted"
           }
           request {
             q          = "sum:nusabank.onboarding.step.count{${local.env},step:approved} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Disetujui"
+            alias      = "Approved"
           }
           request {
             q          = "100 * sum:nusabank.onboarding.step.count{${local.env},step:approved} by {product}.as_count() / sum:nusabank.onboarding.step.count{${local.env},step:started} by {product}.as_count()"
             aggregator = "sum"
-            alias      = "Konversi (%)"
+            alias      = "Conversion (%)"
           }
         }
       }
       widget {
         timeseries_definition {
-          title       = "Login per jam"
+          title       = "Logins per hour"
           show_legend = false
           request {
             q            = "sum:trace.hono.request.hits{${local.login}}.as_count().rollup(sum, 3600)"
@@ -720,7 +1334,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Nusa Poin diperoleh per sumber (per jam)"
+          title       = "Loyalty points earned by source (per hour)"
           show_legend = true
           request {
             q            = "sum:nusabank.rewards.points.earned{${local.env}} by {source}.as_count().rollup(sum, 3600)"
@@ -730,7 +1344,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Chat bantuan: pesan & dialihkan ke petugas"
+          title       = "Support chat: messages and handoffs to an agent"
           show_legend = true
           request {
             q            = "sum:nusabank.chat.message.count{${local.env}} by {responder}.as_count().rollup(sum, 3600)"
@@ -741,7 +1355,7 @@ resource "datadog_dashboard" "business" {
             display_type = "line"
             metadata {
               expression = "sum:nusabank.chat.handoff.count{${local.env}}.as_count().rollup(sum, 3600)"
-              alias_name = "Dialihkan ke petugas"
+              alias_name = "Handed off to an agent"
             }
           }
         }
@@ -749,14 +1363,15 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # @18
   widget {
     group_definition {
-      title       = "Kanal digital — teknologi (auth, rewards, chat)"
+      title       = "Digital channels — technology (auth, rewards, chat)"
       layout_type = "ordered"
 
       widget {
         timeseries_definition {
-          title       = "Latensi login avg & p95 (detik)"
+          title       = "Login latency avg & p95 (s)"
           show_legend = true
           request {
             q            = "avg:trace.hono.request{${local.login}}"
@@ -778,7 +1393,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "Latensi p95 per endpoint auth-service (detik)"
+          title = "p95 latency by auth-service endpoint (s)"
           request {
             q = "top(p95:trace.hono.request{service:nusabank-auth,${local.env}} by {resource_name}, 10, 'mean', 'desc')"
           }
@@ -786,7 +1401,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Error rate kanal digital (%)"
+          title       = "Digital channel error rate (%)"
           show_legend = true
           request {
             q            = "100 * default_zero(sum:trace.hono.request.errors{${local.env},service:nusabank-auth} by {service}.as_count()) / sum:trace.hono.request.hits{${local.env},service:nusabank-auth} by {service}.as_count()"
@@ -805,15 +1420,17 @@ resource "datadog_dashboard" "business" {
     }
   }
 
-  # ───────────────────────────── 6. SLO ─────────────────────────────
+  # ═════════════════════════════ TAB 6 · SLOs ═════════════════════════════
+
+  # @19
   widget {
     group_definition {
-      title       = "SLO journey kritis"
+      title       = "Critical journey SLOs"
       layout_type = "ordered"
 
       widget {
         service_level_objective_definition {
-          title             = "Nusa Bank Digital — journey kritis tersedia"
+          title             = "Nusa Bank Digital — critical journeys available"
           slo_id            = datadog_service_level_objective.digital_banking.id
           view_type         = "detail"
           view_mode         = "overall"
@@ -825,7 +1442,7 @@ resource "datadog_dashboard" "business" {
         for_each = local.journeys
         content {
           service_level_objective_definition {
-            title             = "${widget.value.title}: tersedia"
+            title             = "${widget.value.title}: available"
             slo_id            = datadog_service_level_objective.journey_availability[widget.key].id
             view_type         = "detail"
             view_mode         = "overall"
@@ -838,7 +1455,7 @@ resource "datadog_dashboard" "business" {
         for_each = local.journeys
         content {
           service_level_objective_definition {
-            title             = "${widget.value.title}: cepat"
+            title             = "${widget.value.title}: fast"
             slo_id            = datadog_service_level_objective.journey_latency[widget.key].id
             view_type         = "detail"
             view_mode         = "overall"
@@ -850,14 +1467,15 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # @20
   widget {
     group_definition {
-      title       = "SLO pihak ketiga — penyebabnya di kita atau di partner?"
+      title       = "Third-party SLOs — is it us or the partner?"
       layout_type = "ordered"
 
       widget {
         service_level_objective_definition {
-          title             = "Biller PPOB (per biller)"
+          title             = "PPOB billers (per biller)"
           slo_id            = datadog_service_level_objective.partner_ppob.id
           view_type         = "detail"
           view_mode         = "both"
@@ -867,7 +1485,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         service_level_objective_definition {
-          title             = "Rail transfer: BI FAST & SKN"
+          title             = "Transfer rails: BI FAST & SKN"
           slo_id            = datadog_service_level_objective.partner_rails.id
           view_type         = "detail"
           view_mode         = "both"
@@ -880,28 +1498,28 @@ resource "datadog_dashboard" "business" {
 
   # Tabs reference the top-level widgets (the groups above) by position.
   tab {
-    name       = "Ringkasan"
-    widget_ids = ["@1", "@2", "@3"]
+    name       = "Overview"
+    widget_ids = ["@1", "@2", "@3", "@4", "@5", "@6", "@7", "@8", "@9", "@10"]
   }
   tab {
-    name       = "Transfer"
-    widget_ids = ["@4", "@5"]
+    name       = "Transfers"
+    widget_ids = ["@11", "@12"]
   }
   tab {
-    name       = "Top Up & Tagihan"
-    widget_ids = ["@6", "@7"]
+    name       = "Payments & Top-ups"
+    widget_ids = ["@13", "@14"]
   }
   tab {
-    name       = "Kredit"
-    widget_ids = ["@8", "@9"]
+    name       = "Loans"
+    widget_ids = ["@15", "@16"]
   }
   tab {
-    name       = "Kanal Digital"
-    widget_ids = ["@10", "@11"]
+    name       = "Digital Channels"
+    widget_ids = ["@17", "@18"]
   }
   tab {
-    name       = "SLO"
-    widget_ids = ["@12", "@13"]
+    name       = "SLOs"
+    widget_ids = ["@19", "@20"]
   }
 }
 

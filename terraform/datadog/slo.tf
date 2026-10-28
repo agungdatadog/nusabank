@@ -17,19 +17,19 @@ locals {
       p95_max   = 1 # seconds; baseline p95 ~0.2 s
     }
     saldo = {
-      title     = "Cek saldo"
+      title     = "Balance check"
       operation = "servlet.request"
       filter    = "service:nusabank-account,resource_name:get_/api/accounts,env:demo"
       p95_max   = 1 # baseline ~0.09 s, rare spikes to ~1.1 s
     }
     transfer = {
-      title     = "Kirim transfer"
+      title     = "Send transfer"
       operation = "http.request"
       filter    = "service:nusabank-payment,resource_name:post_/api/transfers,env:demo"
       p95_max   = 2 # baseline ~0.5 s; includes the BI FAST round trip
     }
     tagihan = {
-      title     = "Top up & bayar tagihan"
+      title     = "Top-up & bill payment"
       operation = "hono.request"
       filter    = "service:nusabank-biller,resource_name:post_/api/billers/payments,env:demo"
       p95_max   = 2 # baseline ~0.75 s; includes the PPOB round trip
@@ -44,9 +44,9 @@ locals {
 # ───────────── Umbrella: all critical journeys together ─────────────
 
 resource "datadog_service_level_objective" "digital_banking" {
-  name        = "Nusa Bank Digital — journey kritis tersedia"
+  name        = "Nusa Bank Digital — critical journeys available"
   type        = "metric"
-  description = "Gabungan login, cek saldo, kirim transfer, dan top up & bayar tagihan: persentase request yang berhasil (tanpa 5xx). Managed by Terraform."
+  description = "Login, balance check, send transfer, and top-up & bill payment combined: share of requests that succeed (no 5xx). Managed by Terraform."
 
   query {
     numerator   = join(" + ", [for k in keys(local.journeys) : "(${local.journey_good[k]})"])
@@ -72,9 +72,9 @@ resource "datadog_service_level_objective" "digital_banking" {
 resource "datadog_service_level_objective" "journey_availability" {
   for_each = local.journeys
 
-  name        = "Nusa Bank — ${each.value.title}: tersedia"
+  name        = "Nusa Bank — ${each.value.title}: available"
   type        = "metric"
-  description = "Persentase request ${each.value.title} yang berhasil (tanpa 5xx). Managed by Terraform."
+  description = "Share of ${each.value.title} requests that succeed (no 5xx). Managed by Terraform."
 
   query {
     numerator   = local.journey_good[each.key]
@@ -98,9 +98,9 @@ resource "datadog_service_level_objective" "journey_availability" {
 resource "datadog_service_level_objective" "journey_latency" {
   for_each = local.journeys
 
-  name        = "Nusa Bank — ${each.value.title}: cepat (p95 < ${each.value.p95_max} dtk)"
+  name        = "Nusa Bank — ${each.value.title}: fast (p95 < ${each.value.p95_max}s)"
   type        = "time_slice"
-  description = "Persentase slice 5 menit dengan p95 ${each.value.title} di bawah ${each.value.p95_max} detik. Managed by Terraform."
+  description = "Share of 5-minute slices where ${each.value.title} p95 stays under ${each.value.p95_max}s. Managed by Terraform."
 
   sli_specification {
     time_slice {
@@ -140,9 +140,9 @@ resource "datadog_service_level_objective" "journey_latency" {
 # The credit bureau is left out: tens of calls a day make any ratio meaningless.
 
 resource "datadog_service_level_objective" "partner_ppob" {
-  name        = "Nusa Bank — Biller PPOB tersedia (per biller)"
+  name        = "Nusa Bank — PPOB billers available (per biller)"
   type        = "metric"
-  description = "Persentase panggilan ke setiap biller lewat agregator PPOB yang berhasil, per peer.service. Managed by Terraform."
+  description = "Share of calls to each biller through the PPOB aggregator that succeed, per peer.service. Managed by Terraform."
 
   query {
     numerator   = "sum:trace.ppob.request.hits{env:demo,peer.service:ppob-*} by {peer.service}.as_count() - default_zero(sum:trace.ppob.request.errors{env:demo,peer.service:ppob-*} by {peer.service}.as_count())"
@@ -164,9 +164,9 @@ resource "datadog_service_level_objective" "partner_ppob" {
 }
 
 resource "datadog_service_level_objective" "partner_rails" {
-  name        = "Nusa Bank — Rail transfer tersedia (BI FAST, SKN)"
+  name        = "Nusa Bank — Transfer rails available (BI FAST, SKN)"
   type        = "metric"
-  description = "Persentase panggilan ke BI FAST dan SKN yang berhasil, per peer.service. Managed by Terraform."
+  description = "Share of calls to BI FAST and SKN that succeed, per peer.service. Managed by Terraform."
 
   query {
     numerator   = "sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() - default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count())"
@@ -192,13 +192,13 @@ resource "datadog_service_level_objective" "partner_rails" {
 # slow burn 5% in six hours. Short windows stop the alert as soon as the burn stops.
 
 resource "datadog_monitor" "slo_fast_burn" {
-  name    = "[Nusa Bank] SLO journey kritis: error budget terbakar cepat"
+  name    = "[Nusa Bank] Critical journeys SLO: fast error budget burn"
   type    = "slo alert"
   query   = "burn_rate(\"${datadog_service_level_objective.digital_banking.id}\").over(\"30d\").long_window(\"1h\").short_window(\"5m\") > 14.4"
   message = <<-EOT
-    Error budget SLO "Nusa Bank Digital — journey kritis tersedia" terbakar {{value}}x lebih cepat dari batas.
-    Pada laju ini budget 30 hari habis dalam ±2 hari. Lihat SLO per journey untuk menemukan journey yang gagal,
-    lalu SLO partner untuk memastikan penyebabnya di kita atau di BI FAST / biller.
+    The "Nusa Bank Digital — critical journeys available" error budget is burning {{value}}x faster than allowed.
+    At this rate the 30-day budget is gone in about 2 days. Check the per-journey SLOs to find the failing journey,
+    then the partner SLOs to see whether the cause is ours or BI FAST / a biller.
   EOT
   monitor_thresholds {
     critical = 14.4
@@ -207,12 +207,12 @@ resource "datadog_monitor" "slo_fast_burn" {
 }
 
 resource "datadog_monitor" "slo_slow_burn" {
-  name    = "[Nusa Bank] SLO journey kritis: error budget terbakar perlahan"
+  name    = "[Nusa Bank] Critical journeys SLO: slow error budget burn"
   type    = "slo alert"
   query   = "burn_rate(\"${datadog_service_level_objective.digital_banking.id}\").over(\"30d\").long_window(\"6h\").short_window(\"30m\") > 6"
   message = <<-EOT
-    Error budget SLO "Nusa Bank Digital — journey kritis tersedia" terbakar {{value}}x lebih cepat dari batas
-    selama 6 jam. Bukan insiden mendadak, tetapi akan menghabiskan budget dalam ±5 hari bila dibiarkan.
+    The "Nusa Bank Digital — critical journeys available" error budget has burned {{value}}x faster than allowed
+    for 6 hours. Not a sudden incident, but it will exhaust the budget in about 5 days if left alone.
   EOT
   monitor_thresholds {
     critical = 6

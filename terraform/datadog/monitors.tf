@@ -11,12 +11,12 @@ locals {
 # ───────────── Service health: API error rate per runtime ─────────────
 
 resource "datadog_monitor" "api_errors_java" {
-  name    = "[Nusa Bank] Error rate API tinggi di {{service.name}} (Java)"
+  name    = "[Nusa Bank] High API error rate on {{service.name}} (Java)"
   type    = "query alert"
   query   = "sum(last_15m):100 * default_zero(sum:trace.servlet.request.errors{env:demo} by {service}.as_count()) / sum:trace.servlet.request.hits{env:demo} by {service}.as_count() > 10"
   message = <<-EOT
-    Lebih dari {{threshold}}% request ke **{{service.name}}** gagal dalam 15 menit terakhir ({{value}}%).
-    Mulai dari APM → {{service.name}} → Errors; trace membawa usr.id (CIF) dan partner.name bila penyebabnya di hilir.
+    More than {{threshold}}% of requests to **{{service.name}}** failed in the last 15 minutes ({{value}}%).
+    Start at APM → {{service.name}} → Errors; traces carry usr.id (CIF) and partner.name when the cause is downstream.
   EOT
   monitor_thresholds {
     critical = 10
@@ -27,12 +27,12 @@ resource "datadog_monitor" "api_errors_java" {
 }
 
 resource "datadog_monitor" "api_errors_node" {
-  name    = "[Nusa Bank] Error rate API tinggi di {{service.name}} (Node)"
+  name    = "[Nusa Bank] High API error rate on {{service.name}} (Node)"
   type    = "query alert"
   query   = "sum(last_15m):100 * default_zero(sum:trace.hono.request.errors{env:demo} by {service}.as_count()) / sum:trace.hono.request.hits{env:demo} by {service}.as_count() > 10"
   message = <<-EOT
-    Lebih dari {{threshold}}% request ke **{{service.name}}** gagal dalam 15 menit terakhir ({{value}}%).
-    Mulai dari APM → {{service.name}} → Errors; trace membawa usr.id (CIF) dan partner.name bila penyebabnya di hilir.
+    More than {{threshold}}% of requests to **{{service.name}}** failed in the last 15 minutes ({{value}}%).
+    Start at APM → {{service.name}} → Errors; traces carry usr.id (CIF) and partner.name when the cause is downstream.
   EOT
   monitor_thresholds {
     critical = 10
@@ -43,12 +43,12 @@ resource "datadog_monitor" "api_errors_node" {
 }
 
 resource "datadog_monitor" "api_errors_payment" {
-  name    = "[Nusa Bank] Error rate kirim transfer tinggi (payment-service)"
+  name    = "[Nusa Bank] High error rate sending transfers (payment-service)"
   type    = "query alert"
   query   = "sum(last_15m):100 * default_zero(sum:trace.http.request.errors{service:nusabank-payment,resource_name:post_/api/transfers,env:demo}.as_count()) / sum:trace.http.request.hits{service:nusabank-payment,resource_name:post_/api/transfers,env:demo}.as_count() > 10"
   message = <<-EOT
-    {{value}}% transfer gagal dikirim dalam 15 menit terakhir. Cek monitor partner BI FAST / SKN — kegagalan rail
-    muncul di sini sebagai 502/503 dengan partner.name pada span dan log.
+    {{value}}% of transfers failed to send in the last 15 minutes. Check the BI FAST / SKN partner monitors — rail
+    failures surface here as 502/503 with partner.name on the span and in the log.
   EOT
   monitor_thresholds {
     critical = 10
@@ -61,10 +61,10 @@ resource "datadog_monitor" "api_errors_payment" {
 # ───────────── Customer-facing latency of the key flows ─────────────
 
 resource "datadog_monitor" "latency_transfer" {
-  name    = "[Nusa Bank] Kirim transfer lambat (p95)"
+  name    = "[Nusa Bank] Slow transfer submission (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.http.request{service:nusabank-payment,resource_name:post_/api/transfers,env:demo} > 3"
-  message = "p95 kirim transfer {{value}} detik (baseline ±0,1 detik). Lihat latensi partner BI FAST/SKN dan span database di trace."
+  message = "Transfer submission p95 is {{value}}s (baseline ~0.1s). Look at BI FAST/SKN partner latency and the database spans in the trace."
   monitor_thresholds {
     critical = 3
     warning  = 1.5
@@ -74,10 +74,10 @@ resource "datadog_monitor" "latency_transfer" {
 }
 
 resource "datadog_monitor" "latency_bill_payment" {
-  name    = "[Nusa Bank] Bayar tagihan lambat (p95)"
+  name    = "[Nusa Bank] Slow bill payment (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.hono.request{service:nusabank-biller,resource_name:post_/api/billers/payments,env:demo} > 4"
-  message = "p95 pembayaran top up & tagihan {{value}} detik (baseline ±0,3 detik). Biasanya penyebabnya biller tertentu: lihat monitor latensi per biller."
+  message = "Top-up & bill payment p95 is {{value}}s (baseline ~0.3s). Usually one biller is the cause: see the per-biller latency monitor."
   monitor_thresholds {
     critical = 4
     warning  = 2
@@ -87,10 +87,10 @@ resource "datadog_monitor" "latency_bill_payment" {
 }
 
 resource "datadog_monitor" "latency_login" {
-  name    = "[Nusa Bank] Login lambat (p95)"
+  name    = "[Nusa Bank] Slow login (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.hono.request{service:nusabank-auth,resource_name:post_/api/auth/login,env:demo} > 1.5"
-  message = "p95 login {{value}} detik (baseline ±0,16 detik). Login menyentuh database pg-channel/auth: buka DBM dari span database di trace."
+  message = "Login p95 is {{value}}s (baseline ~0.16s). Login hits the pg-channel/auth database: open DBM from the database span in the trace."
   monitor_thresholds {
     critical = 1.5
     warning  = 0.8
@@ -102,12 +102,12 @@ resource "datadog_monitor" "latency_login" {
 # ───────────── Third parties (peer.service) ─────────────
 
 resource "datadog_monitor" "partner_ppob_latency" {
-  name    = "[Nusa Bank] Biller {{peer.service.name}} lambat (p95)"
+  name    = "[Nusa Bank] Biller {{peer.service.name}} is slow (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.ppob.request{env:demo} by {peer.service} > 3"
   message = <<-EOT
-    Panggilan ke **{{peer.service.name}}** lewat agregator PPOB p95 {{value}} detik (baseline ±0,45 detik).
-    Pembayaran yang melewati 8 detik menjadi PENDING dan dicoba ulang otomatis; dana nasabah tetap di-hold.
+    Calls to **{{peer.service.name}}** through the PPOB aggregator have p95 {{value}}s (baseline ~0.45s).
+    Payments beyond 8s go PENDING and are retried automatically; customer funds stay on hold.
   EOT
   monitor_thresholds {
     critical = 3
@@ -118,10 +118,10 @@ resource "datadog_monitor" "partner_ppob_latency" {
 }
 
 resource "datadog_monitor" "partner_ppob_errors" {
-  name    = "[Nusa Bank] Biller {{peer.service.name}} gagal"
+  name    = "[Nusa Bank] Biller {{peer.service.name}} is failing"
   type    = "query alert"
   query   = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
-  message = "{{value}}% panggilan ke **{{peer.service.name}}** gagal dalam 10 menit terakhir. Dampak bisnis: nusabank.biller.payment.count status:failed per biller di dashboard."
+  message = "{{value}}% of calls to **{{peer.service.name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard."
   monitor_thresholds {
     critical = 10
     warning  = 3
@@ -131,10 +131,10 @@ resource "datadog_monitor" "partner_ppob_errors" {
 }
 
 resource "datadog_monitor" "partner_rail_latency" {
-  name    = "[Nusa Bank] Rail {{peer.service.name}} lambat (p95)"
+  name    = "[Nusa Bank] Rail {{peer.service.name}} is slow (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.partner.request{env:demo,!peer.service:credit-bureau} by {peer.service} > 3"
-  message = "**{{peer.service.name}}** p95 {{value}} detik (baseline BI FAST ±0,2 detik, SKN ±0,15 detik). Transfer yang gagal karena rail dapat diulang operator dari /ops."
+  message = "**{{peer.service.name}}** p95 is {{value}}s (baseline BI FAST ~0.2s, SKN ~0.15s). Transfers that failed on the rail can be retried by an operator from /ops."
   monitor_thresholds {
     critical = 3
     warning  = 1
@@ -144,10 +144,10 @@ resource "datadog_monitor" "partner_rail_latency" {
 }
 
 resource "datadog_monitor" "partner_rail_errors" {
-  name    = "[Nusa Bank] Rail {{peer.service.name}} gagal"
+  name    = "[Nusa Bank] Rail {{peer.service.name}} is failing"
   type    = "query alert"
   query   = "sum(last_10m):100 * default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() > 10"
-  message = "{{value}}% panggilan ke **{{peer.service.name}}** gagal. Transfer berstatus FAILED RAIL_UNAVAILABLE; setelah rail pulih, operator dapat mengulangnya dari /ops."
+  message = "{{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops."
   monitor_thresholds {
     critical = 10
     warning  = 3
@@ -157,10 +157,10 @@ resource "datadog_monitor" "partner_rail_errors" {
 }
 
 resource "datadog_monitor" "partner_credit_bureau_latency" {
-  name    = "[Nusa Bank] Biro kredit lambat (p95)"
+  name    = "[Nusa Bank] Credit bureau is slow (p95)"
   type    = "query alert"
   query   = "avg(last_30m):p95:trace.partner.request{env:demo,peer.service:credit-bureau} > 6"
-  message = "Biro kredit p95 {{value}} detik. Keputusan kredit menunggu biro; pengajuan tetap tersimpan dan dapat dikirim ulang."
+  message = "Credit bureau p95 is {{value}}s. Credit decisions wait on the bureau; applications are kept and can be resubmitted."
   monitor_thresholds {
     critical = 6
     warning  = 4
@@ -172,12 +172,12 @@ resource "datadog_monitor" "partner_credit_bureau_latency" {
 # ───────────── Event pipeline ─────────────
 
 resource "datadog_monitor" "kafka_lag" {
-  name    = "[Nusa Bank] Konsumen {{consumer_group.name}} tertinggal di {{topic.name}}"
+  name    = "[Nusa Bank] Consumer {{consumer_group.name}} lagging on {{topic.name}}"
   type    = "query alert"
   query   = "max(last_10m):max:data_streams.kafka.lag_seconds{env:demo} by {consumer_group,topic} > 60"
   message = <<-EOT
-    **{{consumer_group.name}}** tertinggal {{value}} detik di topik {{topic.name}} (Data Streams Monitoring).
-    Lag di ledger-worker atau account-service berarti saldo dan mutasi nasabah terlambat diperbarui.
+    **{{consumer_group.name}}** is {{value}}s behind on topic {{topic.name}} (Data Streams Monitoring).
+    Lag on ledger-worker or account-service means customer balances and statements update late.
   EOT
   monitor_thresholds {
     critical = 60
@@ -193,12 +193,12 @@ resource "datadog_monitor" "kafka_lag" {
 # twice). ssi-guard recreates such pods every 5 minutes; untraced pods that survive more
 # than one run need a person.
 resource "datadog_monitor" "untraced_pods" {
-  name    = "[Nusa Bank] Pod berjalan tanpa tracer Datadog"
+  name    = "[Nusa Bank] Pods running without the Datadog tracer"
   type    = "log alert"
   query   = "logs(\"\\\"ssi guard run\\\" @untraced:>0\").index(\"*\").rollup(\"count\").last(\"15m\") > 1"
   message = <<-EOT
-    ssi-guard menemukan pod tanpa tracer Datadog di lebih dari satu putaran (15 menit). Trace dan korelasi
-    layanan itu hilang. Cek: kubectl get pods -n nusabank -l nusabank.io/lang dan log CronJob ssi-guard.
+    ssi-guard found pods without the Datadog tracer in more than one run (15 minutes). Traces and correlation
+    for that service are missing. Check: kubectl get pods -n nusabank -l nusabank.io/lang and the ssi-guard CronJob logs.
   EOT
   monitor_thresholds {
     critical = 1
