@@ -1669,6 +1669,45 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        toplist_definition {
+          title = "Failed transfers by reason and rail (from logs)"
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "service:nusabank-payment \"transfer finished\" @status:FAILED"
+                }
+                group_by {
+                  facet = "@failure_reason"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+                group_by {
+                  facet = "@rail"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -2052,6 +2091,45 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        toplist_definition {
+          title = "Failed payments by reason and biller (from logs)"
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "service:nusabank-biller \"bill payment finished\" @status:FAILED"
+                }
+                group_by {
+                  facet = "@failure_reason"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+                group_by {
+                  facet = "@biller"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -2375,6 +2453,60 @@ resource "datadog_dashboard" "business" {
       layout_type = "ordered"
 
       widget {
+        query_value_definition {
+          title       = "Principal applied"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.loan.application.amount{${local.env},stage:submitted}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Principal disbursed"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.loan.application.amount{${local.env},stage:disbursed}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Applications submitted"
+          precision = 0
+          request {
+            q          = "sum:nusabank.loan.application.count{${local.env},stage:submitted}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Approval rate"
+          precision   = 1
+          custom_unit = "%"
+          request {
+            q          = "100 * sum:nusabank.loan.application.count{${local.env},stage:approved}.as_count() / (sum:nusabank.loan.application.count{${local.env},stage:approved}.as_count() + sum:nusabank.loan.application.count{${local.env},stage:rejected}.as_count())"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Simulation to application"
+          precision   = 1
+          custom_unit = "%"
+          request {
+            q          = "100 * sum:nusabank.loan.application.count{${local.env},stage:submitted}.as_count() / sum:nusabank.loan.simulation.count{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
         query_table_definition {
           title = "Applications by product and stage"
           request {
@@ -2422,6 +2554,59 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "sum:nusabank.loan.simulation.count{${local.env}} by {product}.as_count().rollup(sum, 3600)"
             display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Approved vs rejected by product (per hour)"
+          show_legend = true
+
+          request {
+            q            = "sum:nusabank.loan.application.count{${local.env},stage:approved} by {product}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
+          }
+          request {
+            q            = "sum:nusabank.loan.application.count{${local.env},stage:rejected} by {product}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Average principal applied by product (Rp)"
+          request {
+            q = "top(avg:nusabank.loan.application.amount{${local.env},stage:submitted} by {product}, 3, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        query_table_definition {
+          title = "Funnel by product: simulated, applied, approved, disbursed"
+          request {
+            q          = "sum:nusabank.loan.simulation.count{${local.env}} by {product}.as_count()"
+            aggregator = "sum"
+            alias      = "Simulations"
+          }
+          request {
+            q          = "sum:nusabank.loan.application.count{${local.env},stage:submitted} by {product}.as_count()"
+            aggregator = "sum"
+            alias      = "Submitted"
+          }
+          request {
+            q          = "sum:nusabank.loan.application.count{${local.env},stage:approved} by {product}.as_count()"
+            aggregator = "sum"
+            alias      = "Approved"
+          }
+          request {
+            q          = "sum:nusabank.loan.application.count{${local.env},stage:disbursed} by {product}.as_count()"
+            aggregator = "sum"
+            alias      = "Disbursed"
+          }
+          request {
+            q          = "100 * sum:nusabank.loan.application.count{${local.env},stage:submitted} by {product}.as_count() / sum:nusabank.loan.simulation.count{${local.env}} by {product}.as_count()"
+            aggregator = "sum"
+            alias      = "Sim to apply (%)"
           }
         }
       }
@@ -2482,6 +2667,218 @@ resource "datadog_dashboard" "business" {
             metadata {
               expression = "default_zero(sum:trace.servlet.request.errors{service:nusabank-loan,${local.env}}.as_count())"
               alias_name = "Errors"
+            }
+          }
+        }
+      }
+      widget {
+        trace_service_definition {
+          title              = "loan-service — service summary"
+          env                = "demo"
+          service            = "nusabank-loan"
+          span_name          = "servlet.request"
+          show_hits          = true
+          show_errors        = true
+          show_latency       = true
+          show_breakdown     = true
+          show_distribution  = true
+          show_resource_list = true
+          size_format        = "medium"
+          display_format     = "three_column"
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Credit bureau: p95 latency & error rate (%)"
+          show_legend = true
+
+          request {
+            q            = "p95:trace.partner.request{${local.env},peer.service:credit-bureau}"
+            display_type = "line"
+            metadata {
+              expression = "p95:trace.partner.request{${local.env},peer.service:credit-bureau}"
+              alias_name = "p95 latency"
+            }
+          }
+          request {
+            q            = "100 * default_zero(sum:trace.partner.request.errors{${local.env},peer.service:credit-bureau}.as_count()) / sum:trace.partner.request.hits{${local.env},peer.service:credit-bureau}.as_count()"
+            display_type = "bars"
+            metadata {
+              expression = "100 * default_zero(sum:trace.partner.request.errors{${local.env},peer.service:credit-bureau}.as_count()) / sum:trace.partner.request.hits{${local.env},peer.service:credit-bureau}.as_count()"
+              alias_name = "Error rate (%)"
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Document upload latency"
+          show_legend = true
+
+          request {
+            q            = "p95:trace.servlet.request{service:nusabank-loan,resource_name:post_/api/loans/applications/_applicationid_/documents,env:demo}"
+            display_type = "line"
+            metadata {
+              expression = "p95:trace.servlet.request{service:nusabank-loan,resource_name:post_/api/loans/applications/_applicationid_/documents,env:demo}"
+              alias_name = "Upload — p95"
+            }
+          }
+          request {
+            q            = "avg:trace.servlet.request{service:nusabank-loan,resource_name:post_/api/loans/applications/_applicationid_/documents,env:demo}"
+            display_type = "line"
+            metadata {
+              expression = "avg:trace.servlet.request{service:nusabank-loan,resource_name:post_/api/loans/applications/_applicationid_/documents,env:demo}"
+              alias_name = "Upload — avg"
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Disbursement events: consumer lag on loan.disbursement.v1 (s)"
+          show_legend = true
+          custom_link {
+            label = "Open Data Streams"
+            link  = "/data-streams"
+          }
+
+          request {
+            q            = "max:data_streams.kafka.lag_seconds{${local.env},topic:loan.disbursement.v1} by {consumer_group}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Loan database (pg-channel): queries & connections"
+          show_legend = true
+          custom_link {
+            label = "Open Database Monitoring"
+            link  = "/databases"
+          }
+
+          request {
+            q            = "sum:postgresql.queries.count{dbinstance:indowebinar-pg-channel}.as_rate()"
+            display_type = "line"
+            metadata {
+              expression = "sum:postgresql.queries.count{dbinstance:indowebinar-pg-channel}.as_rate()"
+              alias_name = "queries/s"
+            }
+          }
+          request {
+            q            = "avg:postgresql.connections{dbinstance:indowebinar-pg-channel}"
+            display_type = "line"
+            metadata {
+              expression = "avg:postgresql.connections{dbinstance:indowebinar-pg-channel}"
+              alias_name = "connections"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent loan-service error traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-loan status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@http.status_code"
+              width = "auto"
+            }
+            columns {
+              field = "@error.type"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent credit bureau calls"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-loan operation_name:partner.request"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Error Tracking — loan-service"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "apm_issue_stream"
+              query_string = "env:demo service:nusabank-loan"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "loan-service warnings & errors"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "logs_stream"
+              query_string = "env:demo service:nusabank-loan status:(warn OR error)"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+            columns {
+              field = "message"
+              width = "auto"
             }
           }
         }
