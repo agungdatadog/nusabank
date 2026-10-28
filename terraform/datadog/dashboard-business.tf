@@ -2895,6 +2895,57 @@ resource "datadog_dashboard" "business" {
       layout_type = "ordered"
 
       widget {
+        query_value_definition {
+          title     = "Successful logins"
+          precision = 0
+          request {
+            q          = "sum:trace.hono.request.hits.by_http_status{service:nusabank-auth,resource_name:post_/api/auth/login,env:demo,http.status_code:200}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "New accounts approved"
+          precision = 0
+          request {
+            q          = "sum:nusabank.onboarding.step.count{${local.env},step:approved}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Account opening conversion"
+          precision   = 1
+          custom_unit = "%"
+          request {
+            q          = "100 * sum:nusabank.onboarding.step.count{${local.env},step:approved}.as_count() / sum:nusabank.onboarding.step.count{${local.env},step:started}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Support chat sessions"
+          precision = 0
+          request {
+            q          = "sum:nusabank.chat.session.count{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Loyalty points earned"
+          precision = 0
+          request {
+            q          = "sum:nusabank.rewards.points.earned{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
         query_table_definition {
           title = "Account opening funnel by product"
           request {
@@ -2962,13 +3013,59 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        timeseries_definition {
+          title       = "Login outcomes by HTTP status (per hour)"
+          show_legend = true
+
+          request {
+            q            = "sum:trace.hono.request.hits.by_http_status{service:nusabank-auth,resource_name:post_/api/auth/login,env:demo} by {http.status_code}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Account opening funnel over time"
+          show_legend = true
+
+          request {
+            q            = "sum:nusabank.onboarding.step.count{${local.env}} by {step}.as_count().rollup(sum, 3600)"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "What customers ask the assistant (intent)"
+          request {
+            q = "top(sum:nusabank.chat.message.count{${local.env}} by {intent}.as_count(), 12, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Chat sessions by responder (FAQ vs AI agent)"
+          request {
+            q = "top(sum:nusabank.chat.session.count{${local.env}} by {responder}.as_count(), 3, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Rewards redeemed by item"
+          request {
+            q = "top(sum:nusabank.rewards.redemption.count{${local.env}} by {item}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
     }
   }
 
   # @18
   widget {
     group_definition {
-      title       = "Digital channels — technology (auth, rewards, chat)"
+      title       = "Digital channels — technology (auth, chat & AI assistant, rewards)"
       layout_type = "ordered"
 
       widget {
@@ -3016,6 +3113,219 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "100 * default_zero(sum:trace.hono.request.errors{${local.env},service:nusabank-chat} by {service}.as_count()) / sum:trace.hono.request.hits{${local.env},service:nusabank-chat} by {service}.as_count()"
             display_type = "line"
+          }
+        }
+      }
+      widget {
+        trace_service_definition {
+          title              = "auth-service — service summary"
+          env                = "demo"
+          service            = "nusabank-auth"
+          span_name          = "hono.request"
+          show_hits          = true
+          show_errors        = true
+          show_latency       = true
+          show_breakdown     = true
+          show_distribution  = true
+          show_resource_list = true
+          size_format        = "medium"
+          display_format     = "three_column"
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "AI assistant: turn latency & LLM call p95"
+          show_legend = true
+          custom_link {
+            label = "Open LLM Observability"
+            link  = "/llm/traces?query=%40ml_app%3Anusabank-assistant"
+          }
+
+          request {
+            q            = "p95:trace.fastapi.request{service:nusabank-ai-agent,${local.env}}"
+            display_type = "line"
+            metadata {
+              expression = "p95:trace.fastapi.request{service:nusabank-ai-agent,${local.env}}"
+              alias_name = "Agent turn — p95"
+            }
+          }
+          request {
+            q            = "p95:trace.anthropic.request{${local.env}}"
+            display_type = "line"
+            metadata {
+              expression = "p95:trace.anthropic.request{${local.env}}"
+              alias_name = "Claude call — p95"
+            }
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "AI assistant steps & tools (last 24h)"
+          request {
+            q = "top(sum:trace.langchain.request.hits{env:demo,service:nusabank-ai-agent} by {resource_name}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Chat store (MongoDB): operations & connections"
+          show_legend = true
+          custom_link {
+            label = "Open Database Monitoring"
+            link  = "/databases"
+          }
+
+          request {
+            q            = "avg:mongodb.opcounters.queryps{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mongodb.opcounters.queryps{*}"
+              alias_name = "queries/s"
+            }
+          }
+          request {
+            q            = "avg:mongodb.opcounters.insertps{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mongodb.opcounters.insertps{*}"
+              alias_name = "inserts/s"
+            }
+          }
+          request {
+            q            = "avg:mongodb.connections.current{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mongodb.connections.current{*}"
+              alias_name = "connections"
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Rewards: consumer lag on payment events (s)"
+          show_legend = true
+
+          request {
+            q            = "max:data_streams.kafka.lag_seconds{${local.env},consumer_group:rewards-service} by {topic}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent AI assistant traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-ai-agent operation_name:fastapi.request"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@usr.id"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent auth-service error traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-auth status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@http.status_code"
+              width = "auto"
+            }
+            columns {
+              field = "@usr.id"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Error Tracking — digital channels"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "apm_issue_stream"
+              query_string = "env:demo service:(nusabank-auth OR nusabank-chat OR nusabank-rewards OR nusabank-ai-agent)"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Digital channel warnings & errors"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "logs_stream"
+              query_string = "env:demo service:(nusabank-auth OR nusabank-chat OR nusabank-rewards OR nusabank-ai-agent) status:(warn OR error)"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "service"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+            columns {
+              field = "message"
+              width = "auto"
+            }
           }
         }
       }
