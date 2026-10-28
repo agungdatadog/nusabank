@@ -59,9 +59,10 @@ spec:
             # session and for LOADGEN_AGENT_SHARE of load-generator sessions.
             - name: CHAT_RESPONDER
               value: agent
-            # Load-generator chats stay on FAQ until the token budget is agreed.
+            # A quarter of load-generator chats go to ai-agent (agreed 2026-10-28): LLM
+            # Observability history for EP4 at a bounded token cost.
             - name: LOADGEN_AGENT_SHARE
-              value: "0"
+              value: "0.25"
             - name: DD_LOGS_INJECTION
               value: "true"
             # Tags each MongoDB command with the trace context: DBM samples link to the APM trace.
