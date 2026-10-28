@@ -805,6 +805,79 @@ resource "datadog_dashboard" "business" {
     }
   }
 
+  # ───────────────────────────── 6. SLO ─────────────────────────────
+  widget {
+    group_definition {
+      title       = "SLO journey kritis"
+      layout_type = "ordered"
+
+      widget {
+        service_level_objective_definition {
+          title             = "Nusa Bank Digital — journey kritis tersedia"
+          slo_id            = datadog_service_level_objective.digital_banking.id
+          view_type         = "detail"
+          view_mode         = "overall"
+          time_windows      = ["7d", "30d"]
+          show_error_budget = true
+        }
+      }
+      dynamic "widget" {
+        for_each = local.journeys
+        content {
+          service_level_objective_definition {
+            title             = "${widget.value.title}: tersedia"
+            slo_id            = datadog_service_level_objective.journey_availability[widget.key].id
+            view_type         = "detail"
+            view_mode         = "overall"
+            time_windows      = ["7d", "30d"]
+            show_error_budget = true
+          }
+        }
+      }
+      dynamic "widget" {
+        for_each = local.journeys
+        content {
+          service_level_objective_definition {
+            title             = "${widget.value.title}: cepat"
+            slo_id            = datadog_service_level_objective.journey_latency[widget.key].id
+            view_type         = "detail"
+            view_mode         = "overall"
+            time_windows      = ["7d", "30d"]
+            show_error_budget = true
+          }
+        }
+      }
+    }
+  }
+
+  widget {
+    group_definition {
+      title       = "SLO pihak ketiga — penyebabnya di kita atau di partner?"
+      layout_type = "ordered"
+
+      widget {
+        service_level_objective_definition {
+          title             = "Biller PPOB (per biller)"
+          slo_id            = datadog_service_level_objective.partner_ppob.id
+          view_type         = "detail"
+          view_mode         = "both"
+          time_windows      = ["7d", "30d"]
+          show_error_budget = true
+        }
+      }
+      widget {
+        service_level_objective_definition {
+          title             = "Rail transfer: BI FAST & SKN"
+          slo_id            = datadog_service_level_objective.partner_rails.id
+          view_type         = "detail"
+          view_mode         = "both"
+          time_windows      = ["7d", "30d"]
+          show_error_budget = true
+        }
+      }
+    }
+  }
+
   # Tabs reference the top-level widgets (the groups above) by position.
   tab {
     name       = "Ringkasan"
@@ -825,6 +898,10 @@ resource "datadog_dashboard" "business" {
   tab {
     name       = "Kanal Digital"
     widget_ids = ["@10", "@11"]
+  }
+  tab {
+    name       = "SLO"
+    widget_ids = ["@12", "@13"]
   }
 }
 
