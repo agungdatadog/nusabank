@@ -334,7 +334,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "p95 latency by endpoint — Node services (s)"
+          title = "p95 latency by endpoint — Node services"
           request {
             q = "top(p95:trace.hono.request{${local.env}} by {service,resource_name}, 10, 'mean', 'desc')"
           }
@@ -342,7 +342,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "Third-party p95 latency — PPOB billers (s)"
+          title = "Third-party p95 latency — PPOB billers"
           request {
             q = "top(p95:trace.ppob.request{${local.env}} by {peer.service}, 16, 'mean', 'desc')"
           }
@@ -373,19 +373,16 @@ resource "datadog_dashboard" "business" {
       background_color = "vivid_yellow"
 
       widget {
-        hostmap_definition {
-          title           = "Nodes by CPU"
-          node_type       = "host"
-          scope           = ["kube_cluster_name:indowebinar-gke"]
-          no_group_hosts  = true
-          no_metric_hosts = true
+        timeseries_definition {
+          title       = "Node CPU utilization (%)"
+          show_legend = true
           request {
-            fill {
-              q = "avg:system.cpu.user{kube_cluster_name:indowebinar-gke} by {host}"
-            }
+            q            = "100 - avg:system.cpu.idle{kube_cluster_name:indowebinar-gke} by {host}"
+            display_type = "line"
           }
-          style {
-            palette = "green_to_orange"
+          yaxis {
+            min = "0"
+            max = "100"
           }
         }
       }
@@ -523,7 +520,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "End-to-end pipeline latency (s)"
+          title       = "End-to-end pipeline latency"
           show_legend = true
           request {
             q            = "avg:data_streams.latency{${local.env}} by {pathway_type}"
@@ -687,7 +684,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Page load time p75 (s)"
+          title       = "Page load time p75"
           show_legend = false
           request {
             display_type = "line"
@@ -775,7 +772,7 @@ resource "datadog_dashboard" "business" {
 
       widget {
         timeseries_definition {
-          title       = "Synthetic API response time by location (s)"
+          title       = "Synthetic API response time by location"
           show_legend = true
           request {
             q            = "avg:synthetics.http.response.time{*} by {location}"
@@ -867,7 +864,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "AI assistant turn duration (s)"
+          title       = "AI assistant turn duration"
           show_legend = false
           request {
             q            = "avg:ml_obs.trace.duration{ml_app:nusabank-assistant}"
@@ -985,7 +982,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Transfer submission & inquiry latency (s)"
+          title       = "Transfer submission & inquiry latency"
           show_legend = true
           request {
             q            = "avg:trace.http.request{${local.pay_create}}"
@@ -1025,7 +1022,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Rail p95 latency: BI FAST & SKN (s)"
+          title       = "Rail p95 latency: BI FAST & SKN"
           show_legend = true
           request {
             q            = "p95:trace.partner.request{${local.env},!peer.service:credit-bureau} by {peer.service}"
@@ -1133,7 +1130,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         timeseries_definition {
-          title       = "Inquiry & payment latency (s)"
+          title       = "Inquiry & payment latency"
           show_legend = true
           request {
             q            = "p95:trace.hono.request{${local.bill_inq}}"
@@ -1163,7 +1160,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         heatmap_definition {
-          title = "PPOB call latency by biller (s)"
+          title = "PPOB call latency by biller"
           request {
             q = "avg:trace.ppob.request{${local.env}} by {peer.service}"
           }
@@ -1252,7 +1249,7 @@ resource "datadog_dashboard" "business" {
 
       widget {
         timeseries_definition {
-          title       = "Simulation & credit decision latency (s)"
+          title       = "Simulation & credit decision latency"
           show_legend = true
           request {
             q            = "p95:trace.servlet.request{${local.loan_sim}}"
@@ -1392,7 +1389,7 @@ resource "datadog_dashboard" "business" {
 
       widget {
         timeseries_definition {
-          title       = "Login latency avg & p95 (s)"
+          title       = "Login latency avg & p95"
           show_legend = true
           request {
             q            = "avg:trace.hono.request{${local.login}}"
@@ -1414,7 +1411,7 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         toplist_definition {
-          title = "p95 latency by auth-service endpoint (s)"
+          title = "p95 latency by auth-service endpoint"
           request {
             q = "top(p95:trace.hono.request{service:nusabank-auth,${local.env}} by {resource_name}, 10, 'mean', 'desc')"
           }
