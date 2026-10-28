@@ -1,5 +1,4 @@
-# account-service cache and ai-agent conversation memory. AOF on a PVC so agent
-# memory survives a pod reschedule.
+# account-service FX rate cache. AOF on a PVC so the cache survives a pod reschedule.
 apiVersion: v1
 kind: Service
 metadata:

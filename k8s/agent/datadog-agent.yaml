@@ -103,6 +103,12 @@ spec:
             # Drop probe spans for every language in one place.
             - name: DD_APM_IGNORE_RESOURCES
               value: "^(GET|HEAD) /(healthz|readyz)$"
+        agent:
+          env:
+            # The bundled redisdb auto_conf connects without a password and fails on our
+            # requirepass Redis; the cluster check below replaces it.
+            - name: DD_IGNORE_AUTOCONF
+              value: "redisdb"
     clusterAgent:
       image:
         tag: "7.83.3"
@@ -187,6 +193,18 @@ spec:
                 tags:
                   - env:demo
                   - kafka_cluster:nusabank-kafka
+          # In-cluster Redis (account-service FX cache).
+          redisdb.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - host: redis.nusabank.svc.cluster.local
+                port: 6379
+                password: ENC[k8s_secret@datadog/datadog-dbm/redis]
+                command_stats: true
+                tags:
+                  - env:demo
+                  - service:nusabank-redis
           # In-cluster MongoDB (chat-service), per the DBM self-hosted MongoDB guide.
           # Users and query stats sampling come from k8s/platform/mongo-bootstrap.yaml.
           mongo.yaml: |-
