@@ -1495,6 +1495,70 @@ resource "datadog_dashboard" "business" {
       layout_type = "ordered"
 
       widget {
+        query_value_definition {
+          title       = "Transfer value"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.transfer.amount{${local.env},status:success}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Transfers"
+          precision = 0
+          request {
+            q          = "sum:nusabank.transfer.count{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Average transfer"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.transfer.amount{${local.env},status:success}.as_count() / sum:nusabank.transfer.count{${local.env},status:success}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Money in (incoming transfers)"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.transfer.inbound.amount{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Transfer success rate"
+          precision   = 2
+          custom_unit = "%"
+          request {
+            q          = "100 * sum:nusabank.transfer.count{${local.env},status:success}.as_count() / sum:nusabank.transfer.count{${local.env}}.as_count()"
+            aggregator = "sum"
+            conditional_formats {
+              comparator = ">="
+              value      = 99
+              palette    = "white_on_green"
+            }
+            conditional_formats {
+              comparator = "<"
+              value      = 99
+              palette    = "white_on_red"
+            }
+          }
+        }
+      }
+      widget {
         timeseries_definition {
           title       = "Transfers by rail (per hour)"
           show_legend = true
@@ -1561,6 +1625,9 @@ resource "datadog_dashboard" "business" {
               expression = "sum:nusabank.transfer.amount{${local.env},status:success}.as_count().rollup(sum, 3600)"
               alias_name = "Outgoing"
             }
+            style {
+              palette = "warm"
+            }
           }
           request {
             q            = "sum:nusabank.transfer.inbound.amount{${local.env}}.as_count().rollup(sum, 3600)"
@@ -1569,6 +1636,36 @@ resource "datadog_dashboard" "business" {
               expression = "sum:nusabank.transfer.inbound.amount{${local.env}}.as_count().rollup(sum, 3600)"
               alias_name = "Incoming"
             }
+            style {
+              palette = "cool"
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Incoming transfers by rail (per hour)"
+          show_legend = true
+
+          request {
+            q            = "sum:nusabank.transfer.inbound.count{${local.env}} by {rail}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Failed transfers by rail"
+          request {
+            q = "top(sum:nusabank.transfer.count{${local.env},status:failed} by {rail}.as_count(), 5, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Failed transfers by destination bank"
+          request {
+            q = "top(sum:nusabank.transfer.count{${local.env},status:failed} by {destination_bank}.as_count(), 10, 'sum', 'desc')"
           }
         }
       }
@@ -1638,6 +1735,159 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "p95:trace.partner.request{${local.env},!peer.service:credit-bureau} by {peer.service}"
             display_type = "line"
+          }
+        }
+      }
+      widget {
+        trace_service_definition {
+          title              = "payment-service — service summary"
+          env                = "demo"
+          service            = "nusabank-payment"
+          span_name          = "http.request"
+          show_hits          = true
+          show_errors        = true
+          show_latency       = true
+          show_breakdown     = true
+          show_distribution  = true
+          show_resource_list = true
+          size_format        = "medium"
+          display_format     = "three_column"
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Fund hold before the rail (account-service)"
+          show_legend = true
+
+          request {
+            q            = "p95:trace.servlet.request{service:nusabank-account,resource_name:post_/internal/accounts/_accountnumber_/holds,env:demo}"
+            display_type = "line"
+            metadata {
+              expression = "p95:trace.servlet.request{service:nusabank-account,resource_name:post_/internal/accounts/_accountnumber_/holds,env:demo}"
+              alias_name = "Hold — p95"
+            }
+          }
+          request {
+            q            = "sum:trace.servlet.request.hits{service:nusabank-account,resource_name:post_/internal/accounts/_accountnumber_/holds,env:demo}.as_rate()"
+            display_type = "bars"
+            metadata {
+              expression = "sum:trace.servlet.request.hits{service:nusabank-account,resource_name:post_/internal/accounts/_accountnumber_/holds,env:demo}.as_rate()"
+              alias_name = "Holds / s"
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Balance update lag — ledger.posted.v1 to account-service (s)"
+          show_legend = true
+          custom_link {
+            label = "Open Data Streams"
+            link  = "/data-streams"
+          }
+
+          request {
+            q            = "max:data_streams.kafka.lag_seconds{${local.env},consumer_group:account-service} by {topic}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Rail error rate: BI FAST & SKN (%)"
+          show_legend = true
+
+          request {
+            q            = "100 * default_zero(sum:trace.partner.request.errors{${local.env},!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{${local.env},!peer.service:credit-bureau} by {peer.service}.as_count()"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Operator retries by outcome (/ops)"
+          request {
+            q = "top(sum:nusabank.admin.transfer_retry.count{${local.env}} by {outcome}.as_count(), 5, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent payment-service error traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-payment status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@http.status_code"
+              width = "auto"
+            }
+            columns {
+              field = "@error.type"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Error Tracking — payment-service"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "apm_issue_stream"
+              query_string = "env:demo service:nusabank-payment"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "payment-service warnings & errors"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "logs_stream"
+              query_string = "env:demo service:nusabank-payment status:(warn OR error)"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+            columns {
+              field = "message"
+              width = "auto"
+            }
           }
         }
       }
