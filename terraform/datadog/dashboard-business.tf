@@ -1903,6 +1903,70 @@ resource "datadog_dashboard" "business" {
       layout_type = "ordered"
 
       widget {
+        query_value_definition {
+          title       = "Top-up & bill value"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.biller.payment.amount{${local.env},status:success}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Transactions"
+          precision = 0
+          request {
+            q          = "sum:nusabank.biller.payment.count{${local.env}}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Average ticket"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.biller.payment.amount{${local.env},status:success}.as_count() / sum:nusabank.biller.payment.count{${local.env},status:success}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "E-wallet top-up value"
+          precision   = 0
+          custom_unit = "Rp"
+          request {
+            q          = "sum:nusabank.biller.payment.amount{${local.env},status:success,category:ewallet}.as_count()"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Payment success rate"
+          precision   = 2
+          custom_unit = "%"
+          request {
+            q          = "100 * sum:nusabank.biller.payment.count{${local.env},status:success}.as_count() / sum:nusabank.biller.payment.count{${local.env}}.as_count()"
+            aggregator = "sum"
+            conditional_formats {
+              comparator = ">="
+              value      = 98
+              palette    = "white_on_green"
+            }
+            conditional_formats {
+              comparator = "<"
+              value      = 98
+              palette    = "white_on_red"
+            }
+          }
+        }
+      }
+      widget {
         timeseries_definition {
           title       = "Transactions by category (per hour)"
           show_legend = true
@@ -1955,6 +2019,36 @@ resource "datadog_dashboard" "business" {
           title = "Average ticket by category (Rp)"
           request {
             q = "top(avg:nusabank.biller.payment.amount{${local.env},status:success} by {category}, 8, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Failed payments by biller"
+          request {
+            q = "top(sum:nusabank.biller.payment.count{${local.env},status:failed} by {biller}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "E-wallet top-ups by provider (per hour)"
+          show_legend = true
+
+          request {
+            q            = "sum:nusabank.biller.payment.count{${local.env},category:ewallet} by {biller}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Transactions by biller (per hour)"
+          show_legend = true
+
+          request {
+            q            = "sum:nusabank.biller.payment.count{${local.env},!category:ewallet} by {biller}.as_count().rollup(sum, 3600)"
+            display_type = "bars"
           }
         }
       }
@@ -2020,10 +2114,13 @@ resource "datadog_dashboard" "business" {
         }
       }
       widget {
-        heatmap_definition {
-          title = "PPOB call latency by biller"
+        timeseries_definition {
+          title       = "PPOB p95 latency by biller"
+          show_legend = true
+
           request {
-            q = "avg:trace.ppob.request{${local.env}} by {peer.service}"
+            q            = "p95:trace.ppob.request{${local.env}} by {peer.service}"
+            display_type = "line"
           }
         }
       }
@@ -2034,6 +2131,235 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "100 * default_zero(sum:trace.ppob.request.errors{service:nusabank-biller,${local.env}}.as_count()) / sum:trace.ppob.request.hits{service:nusabank-biller,${local.env}}.as_count()"
             display_type = "line"
+          }
+        }
+      }
+      widget {
+        trace_service_definition {
+          title              = "biller-service — service summary"
+          env                = "demo"
+          service            = "nusabank-biller"
+          span_name          = "hono.request"
+          show_hits          = true
+          show_errors        = true
+          show_latency       = true
+          show_breakdown     = true
+          show_distribution  = true
+          show_resource_list = true
+          size_format        = "medium"
+          display_format     = "three_column"
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "PPOB error rate by biller (%)"
+          show_legend = true
+
+          request {
+            q            = "100 * default_zero(sum:trace.ppob.request.errors{${local.env}} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{${local.env}} by {peer.service}.as_count()"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Payments left PENDING — biller timeouts"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "default_zero(query1)"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "service:nusabank-biller \"biller timed out, payment pending\""
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "Payments re-checked by the reconciler"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "default_zero(query1)"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "service:nusabank-biller \"biller still not answering\""
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Payment events: consumer lag on biller.payment.v1 (s)"
+          show_legend = true
+          custom_link {
+            label = "Open Data Streams"
+            link  = "/data-streams"
+          }
+
+          request {
+            q            = "max:data_streams.kafka.lag_seconds{${local.env},topic:biller.payment.v1} by {consumer_group}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Partner DB (MySQL): queries & connections"
+          show_legend = true
+          custom_link {
+            label = "Open Database Monitoring"
+            link  = "/databases"
+          }
+
+          request {
+            q            = "avg:mysql.performance.queries{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mysql.performance.queries{*}"
+              alias_name = "queries/s"
+            }
+          }
+          request {
+            q            = "avg:mysql.net.connections{*}"
+            display_type = "line"
+            metadata {
+              expression = "avg:mysql.net.connections{*}"
+              alias_name = "connections"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent biller-service error traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-biller status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@http.status_code"
+              width = "auto"
+            }
+            columns {
+              field = "@error.type"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Failed PPOB calls"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-biller operation_name:ppob.request status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@peer.service"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@error.type"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Error Tracking — biller-service"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "apm_issue_stream"
+              query_string = "env:demo service:nusabank-biller"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "biller-service warnings & errors"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "logs_stream"
+              query_string = "env:demo service:nusabank-biller status:(warn OR error)"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "status"
+              width = "auto"
+            }
+            columns {
+              field = "message"
+              width = "auto"
+            }
           }
         }
       }
