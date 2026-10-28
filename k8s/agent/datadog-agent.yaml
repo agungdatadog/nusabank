@@ -173,6 +173,20 @@ spec:
                 tags:
                   - env:demo
                   - dbinstance:indowebinar-mysql-partner
+          # Kafka Console (DSM → Kafka): the Kafka Consumer check with cluster monitoring
+          # collects topics, partitions, configs, consumer lag and lets Kafka actions read
+          # messages (Remote Configuration is on). Strimzi listener "plain": no TLS, no auth,
+          # no ACLs. Requires Agent 7.78+.
+          kafka_consumer.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - kafka_connect_str: nusabank-kafka-kafka-bootstrap.nusabank.svc.cluster.local:9092
+                monitor_unlisted_consumer_groups: true
+                enable_cluster_monitoring: true
+                tags:
+                  - env:demo
+                  - kafka_cluster:nusabank-kafka
           # In-cluster MongoDB (chat-service), per the DBM self-hosted MongoDB guide.
           # Users and query stats sampling come from k8s/platform/mongo-bootstrap.yaml.
           mongo.yaml: |-

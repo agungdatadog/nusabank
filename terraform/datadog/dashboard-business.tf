@@ -791,6 +791,25 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        query_table_definition {
+          title = "Broker view: consumer lag and offsets (Kafka Consumer check)"
+          custom_link {
+            label = "Open Kafka Console"
+            link  = "/data-streams/kafka"
+          }
+          request {
+            q          = "max:kafka.consumer_lag{kafka_cluster:nusabank-kafka} by {consumer_group,topic}"
+            aggregator = "last"
+            alias      = "Lag (messages)"
+          }
+          request {
+            q          = "max:kafka.consumer_offset{kafka_cluster:nusabank-kafka} by {consumer_group,topic}"
+            aggregator = "last"
+            alias      = "Committed offset"
+          }
+        }
+      }
     }
   }
 
