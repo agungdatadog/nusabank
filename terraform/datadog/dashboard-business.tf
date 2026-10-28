@@ -283,6 +283,41 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        toplist_definition {
+          title = "Failed top-ups & bills by biller"
+          request {
+            q = "top(sum:nusabank.biller.payment.count{${local.env},status:failed} by {biller}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Failed transfers by rail"
+          request {
+            q = "top(sum:nusabank.transfer.count{${local.env},status:failed} by {rail}.as_count(), 5, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title       = "Loan approval rate"
+          custom_unit = "%"
+          precision   = 1
+          request {
+            q          = "100 * sum:nusabank.loan.application.count{${local.env},stage:approved}.as_count() / (sum:nusabank.loan.application.count{${local.env},stage:approved}.as_count() + sum:nusabank.loan.application.count{${local.env},stage:rejected}.as_count())"
+            aggregator = "sum"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Average transfer value by rail (Rp)"
+          request {
+            q = "top(avg:nusabank.transfer.amount{${local.env},status:success} by {rail}, 5, 'mean', 'desc')"
+          }
+        }
+      }
     }
   }
 
@@ -362,6 +397,112 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        query_table_definition {
+          title = "Service health — Apdex"
+          request {
+            q          = "avg:trace.servlet.request.apdex{${local.env}} by {service}"
+            aggregator = "avg"
+            alias      = "Apdex (Java)"
+          }
+          request {
+            q          = "avg:trace.hono.request.apdex{${local.env}} by {service}"
+            aggregator = "avg"
+            alias      = "Apdex (Node)"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Error spans by service, incl. outbound calls"
+          custom_link {
+            label = "Open error traces"
+            link  = "/apm/traces?query=env%3Ademo%20service%3Anusabank-%2A%20status%3Aerror"
+          }
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "spans"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo service:nusabank-* status:error"
+                }
+                group_by {
+                  facet = "service"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Error Tracking — backend issues"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "apm_issue_stream"
+              query_string = "env:demo service:nusabank-*"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent error traces"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "trace_stream"
+              query_string = "env:demo service:nusabank-* status:error"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "service"
+              width = "auto"
+            }
+            columns {
+              field = "resource_name"
+              width = "auto"
+            }
+            columns {
+              field = "@duration"
+              width = "auto"
+            }
+            columns {
+              field = "@http.status_code"
+              width = "auto"
+            }
+          }
+        }
+      }
     }
   }
 
@@ -421,6 +562,49 @@ resource "datadog_dashboard" "business" {
           title = "Container restarts by deployment"
           request {
             q = "top(sum:kubernetes.containers.restarts{kube_namespace:nusabank} by {kube_deployment}, 10, 'max', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "CPU usage vs limit by deployment (%)"
+          request {
+            q = "top(100 * sum:kubernetes.cpu.usage.total{kube_namespace:nusabank} by {kube_deployment} / sum:kubernetes.cpu.limits{kube_namespace:nusabank} by {kube_deployment} / 1000000000, 10, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Memory working set vs limit by deployment (%)"
+          request {
+            q = "top(100 * sum:kubernetes.memory.working_set{kube_namespace:nusabank} by {kube_deployment} / sum:kubernetes.memory.limits{kube_namespace:nusabank} by {kube_deployment}, 10, 'mean', 'desc')"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "CPU throttling by deployment (s)"
+          show_legend = true
+          request {
+            q            = "sum:kubernetes.cpu.cfs.throttled.seconds{kube_namespace:nusabank} by {kube_deployment}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Kubernetes events — nusabank"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "event_stream"
+              query_string = "source:kubernetes kube_namespace:nusabank"
+              event_size   = "s"
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
           }
         }
       }
@@ -498,6 +682,48 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        timeseries_definition {
+          title       = "Postgres buffer cache hit (%)"
+          show_legend = true
+          custom_link {
+            label = "Open Database Monitoring"
+            link  = "/databases"
+          }
+          request {
+            q            = "100 * avg:postgresql.buffer_hit{*} by {dbinstance} / (avg:postgresql.buffer_hit{*} by {dbinstance} + avg:postgresql.disk_read{*} by {dbinstance})"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Postgres locks & deadlocks"
+          show_legend = true
+          request {
+            q            = "max:postgresql.locks{*} by {dbinstance}"
+            display_type = "line"
+          }
+          request {
+            q            = "default_zero(sum:postgresql.deadlocks{*})"
+            display_type = "bars"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "MySQL slow queries & InnoDB buffer pool (%)"
+          show_legend = true
+          request {
+            q            = "avg:mysql.performance.slow_queries{*}"
+            display_type = "line"
+          }
+          request {
+            q            = "100 * avg:mysql.innodb.buffer_pool_utilization{*}"
+            display_type = "line"
+          }
+        }
+      }
     }
   }
 
@@ -533,6 +759,35 @@ resource "datadog_dashboard" "business" {
           title = "Messages by topic"
           request {
             q = "top(count:data_streams.payload_size{${local.env}} by {topic}.as_count(), 10, 'sum', 'desc')"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Consumer lag (messages) by topic"
+          show_legend = true
+          custom_link {
+            label = "Open Data Streams"
+            link  = "/data-streams"
+          }
+          request {
+            q            = "max:data_streams.kafka.lag_messages{${local.env}} by {topic}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        query_table_definition {
+          title = "Consumer lag by group and topic"
+          request {
+            q          = "max:data_streams.kafka.lag_seconds{${local.env}} by {consumer_group,topic}"
+            aggregator = "max"
+            alias      = "Lag (s)"
+          }
+          request {
+            q          = "max:data_streams.kafka.lag_messages{${local.env}} by {consumer_group,topic}"
+            aggregator = "max"
+            alias      = "Lag (messages)"
           }
         }
       }
@@ -591,6 +846,67 @@ resource "datadog_dashboard" "business" {
           sort {
             column = "time"
             order  = "desc"
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "Error logs by service"
+          show_legend = true
+          custom_link {
+            label = "Open error logs"
+            link  = "/logs?query=env%3Ademo%20service%3Anusabank-%2A%20status%3Aerror"
+          }
+          request {
+            display_type = "bars"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "logs"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo service:nusabank-* status:error"
+                }
+                group_by {
+                  facet = "service"
+                  limit = 15
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Warning & error log patterns"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "logs_pattern_stream"
+              query_string = "env:demo service:nusabank-* status:(warn OR error)"
+            }
+            columns {
+              field = "status_line"
+              width = "auto"
+            }
+            columns {
+              field = "service"
+              width = "auto"
+            }
+            columns {
+              field = "volume_sparkline"
+              width = "auto"
+            }
           }
         }
       }
@@ -760,6 +1076,209 @@ resource "datadog_dashboard" "business" {
           }
         }
       }
+      widget {
+        query_value_definition {
+          title     = "LCP p75 (s)"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1 / 1000000000"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "pc75"
+                  metric      = "@view.largest_contentful_paint"
+                }
+                search {
+                  query = "@type:view"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "INP p75 (ms)"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1 / 1000000"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "pc75"
+                  metric      = "@view.interaction_to_next_paint"
+                }
+                search {
+                  query = "@type:view"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        query_value_definition {
+          title     = "CLS p75"
+          precision = 0
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "pc75"
+                  metric      = "@view.cumulative_layout_shift"
+                }
+                search {
+                  query = "@type:view"
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Slowest pages — load time p75 (ms)"
+          request {
+            formula {
+              formula_expression = "query1 / 1000000"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "pc75"
+                  metric      = "@view.loading_time"
+                }
+                search {
+                  query = "@type:view"
+                }
+                group_by {
+                  facet = "@view.url_path_group"
+                  limit = 8
+                  sort {
+                    aggregation = "pc75"
+                    order       = "desc"
+                    metric      = "@view.loading_time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Failed API calls from the browser"
+          custom_link {
+            label = "Open RUM resources"
+            link  = "/rum/sessions?query=%40type%3Aresource%20%40resource.status_code%3A%3E%3D400"
+          }
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "rum"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "@type:resource @resource.status_code:>=400"
+                }
+                group_by {
+                  facet = "@resource.url_path"
+                  limit = 8
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Frontend Error Tracking issues"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "rum_issue_stream"
+              query_string = ""
+            }
+            columns {
+              field = "details"
+              width = "auto"
+            }
+            columns {
+              field = "count"
+              width = "auto"
+            }
+            columns {
+              field = "volume"
+              width = "auto"
+            }
+          }
+        }
+      }
+      widget {
+        list_stream_definition {
+          title = "Recent customer sessions — click to replay"
+          request {
+            response_format = "event_list"
+            query {
+              data_source  = "rum_stream"
+              query_string = "@type:session @usr.id:*"
+            }
+            columns {
+              field = "timestamp"
+              width = "auto"
+            }
+            columns {
+              field = "@usr.name"
+              width = "auto"
+            }
+            columns {
+              field = "@usr.id"
+              width = "auto"
+            }
+            columns {
+              field = "@usr.segment"
+              width = "auto"
+            }
+            columns {
+              field = "@session.view.count"
+              width = "auto"
+            }
+            columns {
+              field = "@geo.country"
+              width = "auto"
+            }
+          }
+        }
+      }
     }
   }
 
@@ -807,6 +1326,18 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "sum:kubernetes.network.rx_bytes{kube_namespace:nusabank} by {kube_deployment}"
             display_type = "area"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Synthetic test runs by test"
+          custom_link {
+            label = "Open Synthetics"
+            link  = "/synthetics/tests"
+          }
+          request {
+            q = "top(sum:synthetics.test_runs{*} by {test_name}.as_count(), 10, 'sum', 'desc')"
           }
         }
       }
@@ -869,6 +1400,86 @@ resource "datadog_dashboard" "business" {
           request {
             q            = "avg:ml_obs.trace.duration{ml_app:nusabank-assistant}"
             display_type = "line"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "Attack attempts by source IP"
+          custom_link {
+            label = "Open App & API Protection"
+            link  = "/security/appsec/traces?query=env%3Ademo"
+          }
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "spans"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo @appsec.event:true"
+                }
+                group_by {
+                  facet = "@http.client_ip"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      widget {
+        timeseries_definition {
+          title       = "LLM call latency p95 (Anthropic)"
+          show_legend = true
+          custom_link {
+            label = "Open LLM Observability"
+            link  = "/llm/traces?query=%40ml_app%3Anusabank-assistant"
+          }
+          request {
+            q            = "p95:trace.anthropic.request{${local.env}}"
+            display_type = "line"
+          }
+        }
+      }
+      widget {
+        toplist_definition {
+          title = "AI assistant steps & tools"
+          request {
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              event_query {
+                name        = "query1"
+                data_source = "spans"
+                indexes     = ["*"]
+                compute {
+                  aggregation = "count"
+                }
+                search {
+                  query = "env:demo service:nusabank-ai-agent"
+                }
+                group_by {
+                  facet = "resource_name"
+                  limit = 10
+                  sort {
+                    aggregation = "count"
+                    order       = "desc"
+                  }
+                }
+              }
+            }
           }
         }
       }
