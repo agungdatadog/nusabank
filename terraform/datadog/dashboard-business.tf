@@ -51,8 +51,9 @@ resource "datadog_dashboard" "business" {
 
       widget {
         query_value_definition {
-          title     = "Digital Banking Health Score"
-          precision = 2
+          title       = "Digital Banking Health Score"
+          precision   = 2
+          custom_unit = "%"
           request {
             formula {
               formula_expression = join(" + ", [for h in local.health_weights : "${h.weight} * ${h.name}"])
@@ -248,9 +249,19 @@ resource "datadog_dashboard" "business" {
       }
       widget {
         sunburst_definition {
-          title = "Transfer value by rail"
+          title = "Transfer value by rail (Rp)"
           request {
-            q = "sum:nusabank.transfer.amount{${local.env},status:success} by {rail}.as_count()"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              metric_query {
+                name        = "query1"
+                data_source = "metrics"
+                query       = "sum:nusabank.transfer.amount{${local.env},status:success} by {rail}.as_count()"
+                aggregator  = "sum"
+              }
+            }
           }
         }
       }
@@ -258,7 +269,17 @@ resource "datadog_dashboard" "business" {
         sunburst_definition {
           title = "Top-ups & bills by category"
           request {
-            q = "sum:nusabank.biller.payment.count{${local.env}} by {category}.as_count()"
+            formula {
+              formula_expression = "query1"
+            }
+            query {
+              metric_query {
+                name        = "query1"
+                data_source = "metrics"
+                query       = "sum:nusabank.biller.payment.count{${local.env}} by {category}.as_count()"
+                aggregator  = "sum"
+              }
+            }
           }
         }
       }
@@ -514,7 +535,7 @@ resource "datadog_dashboard" "business" {
         toplist_definition {
           title = "Messages by topic"
           request {
-            q = "top(sum:data_streams.payload_size{${local.env}} by {topic}.as_count(), 10, 'sum', 'desc')"
+            q = "top(count:data_streams.payload_size{${local.env}} by {topic}.as_count(), 10, 'sum', 'desc')"
           }
         }
       }
