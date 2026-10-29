@@ -57,6 +57,11 @@ spec:
               value: nusabank-assistant
             - name: DD_LLMOBS_AGENTLESS_ENABLED
               value: "false"
+            # langchain-anthropic calls messages.with_raw_response.create, so the anthropic
+            # integration sees a raw response without usage and no span gets token counts.
+            # With it off, the LangChain integration records the LLM span from usage_metadata.
+            - name: DD_TRACE_ANTHROPIC_ENABLED
+              value: "false"
             - name: DD_SITE
               value: datadoghq.com
             - name: DD_LOGS_INJECTION
