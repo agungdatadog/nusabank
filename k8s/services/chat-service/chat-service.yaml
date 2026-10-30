@@ -59,10 +59,10 @@ spec:
             # session and for LOADGEN_AGENT_SHARE of load-generator sessions.
             - name: CHAT_RESPONDER
               value: agent
-            # A quarter of load-generator chats go to ai-agent (agreed 2026-10-28): LLM
-            # Observability history for EP4 at a bounded token cost.
+            # Back to 0 after EP1 to save tokens: load-generator chats get FAQ answers,
+            # browser sessions still reach ai-agent. Raise it again before EP4 for LLM Obs history.
             - name: LOADGEN_AGENT_SHARE
-              value: "0.25"
+              value: "0"
             - name: DD_LOGS_INJECTION
               value: "true"
             # Tags each MongoDB command with the trace context: DBM samples link to the APM trace.
