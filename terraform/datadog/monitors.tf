@@ -55,6 +55,24 @@ resource "datadog_monitor" "api_errors_payment" {
     warning  = 5
   }
   require_full_window = false
+  tags                = concat(local.monitor_tags, ["service:nusabank-payment"])
+}
+
+# A pod killed mid-request never flushes its span, so OOM kills can hide from the trace error
+# rate above; restarts are the infrastructure side of the same failure.
+resource "datadog_monitor" "pod_restarts" {
+  name    = "[Nusa Bank] {{service.name}} containers keep restarting"
+  type    = "query alert"
+  query   = "change(sum(last_10m),last_10m):sum:kubernetes.containers.restarts{kube_namespace:nusabank,env:demo} by {service} > 3"
+  message = <<-EOT
+    Containers of **{{service.name}}** restarted {{value}} times in the last 10 minutes. Customers on that service's
+    journeys see failed requests while pods restart. Check the pod's last termination reason (OOMKilled, probe
+    failures) and the service's most recent deployment.
+  EOT
+  monitor_thresholds {
+    critical = 3
+  }
+  require_full_window = false
   tags                = local.monitor_tags
 }
 

@@ -72,11 +72,15 @@ auth.post("/login", async (c) => {
         "UPDATE customers SET failed_logins = failed_logins + 1, last_failed_login_at = now() WHERE cif = $1",
         [customer.cif],
       );
-    logger.info({ username, reason: !customer ? "unknown_user" : !ok ? "bad_password" : "locked" }, "login rejected");
+    tracer.loginFailure(username, !!customer);
+    // network.client.ip lets a Cloud SIEM rule count distinct usernames per source (credential stuffing).
+    const clientIp = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+    logger.info({ username, reason: !customer ? "unknown_user" : !ok ? "bad_password" : "locked", network: { client: { ip: clientIp } } }, "login rejected");
     throw new ApiError(401, "INVALID_CREDENTIALS", "Username atau password salah");
   }
   await pool.query("UPDATE customers SET failed_logins = 0 WHERE cif = $1", [customer.cif]);
   tagUser(customer.cif, customer.segment);
+  tracer.loginSuccess(username, customer.cif);
 
   if (customer.mfa_enabled) {
     const { rows: ch } = await pool.query<{ token: string }>(

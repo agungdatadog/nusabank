@@ -13,6 +13,15 @@ interface Tracer {
   // Sets usr.* on the root (request) span, which is also what AAP keys users on.
   setUser(user: { id: string; [key: string]: string }): void;
   dogstatsd: { increment(name: string, value?: number, tags?: Record<string, string>): void };
+  // AAP account-takeover events: login success/failure feed the credential-stuffing detections.
+  appsec?: {
+    eventTrackingV2?: {
+      trackUserLoginSuccess(login: string, user?: { id: string }): void;
+      trackUserLoginFailure(login: string, exists: boolean): void;
+    };
+    trackUserLoginSuccessEvent?(user: { id: string }): void;
+    trackUserLoginFailureEvent?(userId: string, exists: boolean): void;
+  };
 }
 
 const noop: Tracer = {
@@ -23,11 +32,22 @@ const noop: Tracer = {
 
 const injected = () => (globalThis as { _ddtrace?: Tracer })._ddtrace ?? noop;
 
-const tracer: Tracer = {
+const tracer = {
   scope: () => injected().scope(),
-  setUser: (user) => injected().setUser(user),
+  setUser: (user: { id: string; [key: string]: string }) => injected().setUser(user),
   dogstatsd: {
-    increment: (...args) => injected().dogstatsd.increment(...args),
+    increment: (...args: Parameters<Tracer["dogstatsd"]["increment"]>) => injected().dogstatsd.increment(...args),
+  },
+  // Prefers the v2 API (keyed on the login name); older injected tracers only have the v1 calls.
+  loginSuccess(login: string, userId: string) {
+    const a = injected().appsec;
+    if (a?.eventTrackingV2) a.eventTrackingV2.trackUserLoginSuccess(login, { id: userId });
+    else a?.trackUserLoginSuccessEvent?.({ id: userId });
+  },
+  loginFailure(login: string, exists: boolean) {
+    const a = injected().appsec;
+    if (a?.eventTrackingV2) a.eventTrackingV2.trackUserLoginFailure(login, exists);
+    else a?.trackUserLoginFailureEvent?.(login, exists);
   },
 };
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, formatDateTime, formatMoney, maskAccount, RequestError, type Account, type Bank, type Inquiry, type Transfer } from "../api";
 import { actionName, useT, type MessageKey } from "../i18n";
-import { rumAction } from "../rum";
+import { rumAction, rumError } from "../rum";
 
 const RAILS = ["INTRABANK", "BIFAST", "SKN"] as const;
 
@@ -81,7 +81,11 @@ export function TransferPage() {
       rumAction("transfer_submitted", { rail: tr.rail, status: tr.status, amount: Number(tr.amount.amount), destination_bank: tr.destination_bank_name });
     } catch (err) {
       fail(err);
-      rumAction("transfer_failed", { rail, code: err instanceof RequestError ? err.body.code : "NETWORK", partner: err instanceof RequestError ? err.body.partner : undefined });
+      const code = err instanceof RequestError ? err.body.code : "NETWORK";
+      const partner = err instanceof RequestError ? err.body.partner : undefined;
+      rumAction("transfer_failed", { rail, code, partner });
+      // Only server and network failures go to Error Tracking; 4xx declines (insufficient funds) are business outcomes.
+      if (!(err instanceof RequestError) || err.status >= 500) rumError(err, { journey: "transfer", step: "confirm", rail, code, partner });
     } finally {
       setBusy(false);
     }
