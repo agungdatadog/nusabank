@@ -4,7 +4,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
-RUN npm run build && rm -f dist/assets/*.map
+# Source maps stay in the build stage (/app/sourcemaps) for the Datadog upload in
+# cloudbuild.yaml; the served image never contains them.
+RUN npm run build && mkdir -p /app/sourcemaps && cp -r dist/assets /app/sourcemaps/ \
+    && rm -f dist/assets/*.map
 
 FROM nginxinc/nginx-unprivileged:1.31.4-alpine3.24
 COPY nginx.conf /etc/nginx/conf.d/default.conf

@@ -179,3 +179,12 @@ resource "google_secret_manager_secret_iam_member" "secret_reader" {
     google_secret_manager_secret.demo,
   ]
 }
+
+data "google_project" "this" {}
+
+# Cloud Build (default compute SA) uploads frontend source maps to Datadog with this key.
+resource "google_secret_manager_secret_iam_member" "cloudbuild_dd_api_key" {
+  secret_id = "${var.name_prefix}-dd-api-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.this.number}-compute@developer.gserviceaccount.com"
+}

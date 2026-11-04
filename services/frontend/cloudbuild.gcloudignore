@@ -1,0 +1,8 @@
+# Like the root .gcloudignore, but keeps .git: datadog-ci reads the commit and file list.
+.terraform/
+terraform/
+docs/
+**/node_modules/
+**/dist/
+**/target/
+*.tfplan
