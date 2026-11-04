@@ -45,6 +45,11 @@ export function rumSetUser(user: { cif: string; name: string; segment: string })
   datadogRum.setUser({ id: user.cif, name: user.name, segment: user.segment });
 }
 
+/** UI language as a session attribute (@context.ui.lang): RUM breakdowns per language. */
+export function rumSetLang(lang: string) {
+  datadogRum.setGlobalContextProperty("ui", { lang });
+}
+
 export function rumClearUser() {
   datadogRum.clearUser();
 }

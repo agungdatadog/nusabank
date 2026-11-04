@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, formatDateTime, formatMoney, type Transfer } from "../api";
+import { useT, type MessageKey } from "../i18n";
+import { railLabel } from "./TransferPage";
 
-const STATUS: Record<Transfer["status"], string> = { SUCCESS: "Berhasil", PROCESSING: "Diproses", FAILED: "Gagal" };
-const RAIL: Record<string, string> = { INTRABANK: "Sesama Nusa Bank", BIFAST: "BI FAST", SKN: "SKN" };
+const STATUS: Record<Transfer["status"], MessageKey> = { SUCCESS: "status.success", PROCESSING: "status.processing", FAILED: "status.failed" };
 
 export function TransferHistoryPage() {
+  const { t } = useT();
   const [items, setItems] = useState<Transfer[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -14,22 +16,22 @@ export function TransferHistoryPage() {
 
   return (
     <div className="stack">
-      <h1>Riwayat Transfer</h1>
+      <h1>{t("nav.transferHistory")}</h1>
       <section className="card">
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Waktu</th><th>Penerima</th><th>Layanan</th><th className="right">Nominal</th><th>Status</th></tr></thead>
+            <thead><tr><th>{t("common.time")}</th><th>{t("common.recipient")}</th><th>{t("common.service")}</th><th className="right">{t("common.amount")}</th><th>{t("common.status")}</th></tr></thead>
             <tbody>
-              {items.map((t) => (
-                <tr key={t.id}>
-                  <td className="nowrap">{formatDateTime(t.created_at)}</td>
-                  <td>{t.destination_account_name}<div className="muted small">{t.destination_bank_name} · {t.destination_account_number}</div></td>
-                  <td>{RAIL[t.rail] ?? t.rail}</td>
-                  <td className="right nowrap">{formatMoney(t.amount)}</td>
-                  <td><span className={`pill ${t.status.toLowerCase()}`}>{STATUS[t.status]}</span></td>
+              {items.map((tr) => (
+                <tr key={tr.id}>
+                  <td className="nowrap">{formatDateTime(tr.created_at)}</td>
+                  <td>{tr.destination_account_name}<div className="muted small">{tr.destination_bank_name} · {tr.destination_account_number}</div></td>
+                  <td>{railLabel(t, tr.rail)}</td>
+                  <td className="right nowrap">{formatMoney(tr.amount)}</td>
+                  <td><span className={`pill ${tr.status.toLowerCase()}`}>{t(STATUS[tr.status])}</span></td>
                 </tr>
               ))}
-              {loaded && !items.length && <tr><td colSpan={5} className="muted">Belum ada transfer</td></tr>}
+              {loaded && !items.length && <tr><td colSpan={5} className="muted">{t("tf.noTransfers")}</td></tr>}
             </tbody>
           </table>
         </div>

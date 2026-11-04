@@ -3,6 +3,8 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { api, RequestError } from "../api";
 import { useAuth } from "../auth";
 import { Logo } from "../components/Layout";
+import { LangSwitcher } from "../components/LangSwitcher";
+import { actionName, useT } from "../i18n";
 import { rumAction } from "../rum";
 
 interface LoginResponse {
@@ -14,6 +16,7 @@ interface LoginResponse {
 export function LoginPage() {
   const { customer, completeLogin } = useAuth();
   const navigate = useNavigate();
+  const { t } = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -43,7 +46,7 @@ export function LoginPage() {
       rumAction("login_success", { mfa: Boolean(mfaToken) });
       navigate("/");
     } catch (err) {
-      setError(err instanceof RequestError ? err.body.message : "Tidak dapat terhubung, silakan coba lagi");
+      setError(err instanceof RequestError ? err.body.message : t("common.networkError"));
       if (err instanceof RequestError && err.body.code === "MFA_EXPIRED") setMfaToken(null);
     } finally {
       setBusy(false);
@@ -52,34 +55,37 @@ export function LoginPage() {
 
   return (
     <div className="login">
+      <div className="lang-float"><LangSwitcher /></div>
       <div className="login-hero">
         <Logo />
-        <h1>Perbankan digital untuk seluruh Nusantara</h1>
-        <p>Transfer BI FAST dan SKN, pembayaran tagihan, simulasi KPR, dan e-Statement dalam satu aplikasi.</p>
+        <h1>{t("login.heroTitle")}</h1>
+        <p>{t("login.heroText")}</p>
       </div>
       <form className="card login-card" onSubmit={submit}>
-        <h2>{mfaToken ? "Verifikasi OTP" : "Masuk ke Internet Banking"}</h2>
+        <h2>{t(mfaToken ? "login.otpTitle" : "login.title")}</h2>
         {!mfaToken ? (
           <>
             <label>
-              User ID
+              {t("login.userId")}
               <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
             </label>
             <label>
-              Kata sandi
+              {t("common.password")}
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
             </label>
           </>
         ) : (
           <label>
-            Kode OTP yang dikirim via SMS
+            {t("login.otpLabel")}
             <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" maxLength={6} pattern="\d{6}" required autoFocus />
           </label>
         )}
         {error && <div className="alert">{error}</div>}
-        <button className="primary" disabled={busy}>{busy ? "Memproses…" : mfaToken ? "Verifikasi" : "Masuk"}</button>
+        <button className="primary" disabled={busy} {...actionName(mfaToken ? "login.verify" : "login.submit")}>
+          {busy ? t("common.processing") : t(mfaToken ? "login.verify" : "login.submit")}
+        </button>
         <p className="muted small">
-          Belum punya rekening? <Link to="/buka-rekening">Buka rekening online</Link>
+          {t("login.noAccount")} <Link to="/buka-rekening" {...actionName("login.openAccount")}>{t("login.openAccount")}</Link>
         </p>
       </form>
     </div>

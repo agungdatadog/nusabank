@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type ChatMessage, type ChatSession } from "../api";
+import { actionName, useT } from "../i18n";
 import { rumAction } from "../rum";
 
 const SESSION_KEY = "nusabank.chat";
-const SUGGESTIONS = ["Biaya transfer BI FAST?", "Cara top up GoPay", "Simulasi cicilan KPR", "Saya mau bicara dengan petugas"];
+const SUGGESTIONS = ["chat.suggest1", "chat.suggest2", "chat.suggest3", "chat.suggest4"] as const;
 
 export function ChatWidget() {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [draft, setDraft] = useState("");
@@ -22,7 +24,7 @@ export function ChatWidget() {
       setSession(s);
     });
     (saved ? api.get<ChatSession>(`/api/chat/sessions/${saved}`).then(setSession).catch(start) : start())
-      .catch(() => setError("Chat belum dapat dimuat"));
+      .catch(() => setError(t("chat.loadError")));
   }, [open, session]);
 
   // Braces matter: newer browsers return a Promise from scrollIntoView, and an effect must
@@ -43,7 +45,7 @@ export function ChatWidget() {
       setSession((s) => s && { ...s, status: reply.role === "agent_handoff" ? "HANDED_OFF" : s.status, messages: [...(s.messages ?? []), reply] });
       rumAction("chat_message_sent", { handoff: reply.role === "agent_handoff" });
     } catch (err) {
-      setError(err instanceof RequestError ? err.body.message : "Tidak dapat terhubung, silakan coba lagi");
+      setError(err instanceof RequestError ? err.body.message : t("common.networkError"));
     } finally {
       setBusy(false);
     }
@@ -59,40 +61,40 @@ export function ChatWidget() {
     send(draft);
   };
 
-  if (!open) return <button className="chat-fab primary" onClick={() => setOpen(true)}>Bantuan</button>;
+  if (!open) return <button className="chat-fab primary" onClick={() => setOpen(true)} {...actionName("chat.help")}>{t("chat.help")}</button>;
 
   const handedOff = session?.status !== undefined && session.status !== "OPEN";
   return (
     <div className="chat-panel card">
       <div className="chat-head">
-        <strong>Asisten Nusa Bank</strong>
+        <strong>{t("chat.title")}</strong>
         <span className="row" style={{ gap: "0.9rem" }}>
-          <button className="link" onClick={restart} disabled={busy}>Sesi baru</button>
-          <button className="link" onClick={() => setOpen(false)}>Tutup</button>
+          <button className="link" onClick={restart} disabled={busy} {...actionName("chat.newSession")}>{t("chat.newSession")}</button>
+          <button className="link" onClick={() => setOpen(false)} {...actionName("common.close")}>{t("common.close")}</button>
         </span>
       </div>
       <div className="chat-body">
         {(session?.messages ?? []).map((m) => (
           <div key={m.id} className={`bubble ${m.role}`}>{m.content}</div>
         ))}
-        {busy && <div className="bubble assistant muted">Mengetik…</div>}
+        {busy && <div className="bubble assistant muted">{t("chat.typing")}</div>}
         <div ref={end} />
       </div>
       {error && <div className="alert small">{error}</div>}
       {handedOff ? (
         <div className="chat-foot small muted">
-          Percakapan diteruskan ke petugas. <button className="link" onClick={restart}>Mulai sesi baru</button>
+          {t("chat.handedOff")} <button className="link" onClick={restart} {...actionName("chat.startNew")}>{t("chat.startNew")}</button>
         </div>
       ) : (
         <>
           {(session?.messages?.length ?? 0) <= 1 && (
             <div className="chips">
-              {SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)} disabled={busy}>{s}</button>)}
+              {SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(t(s))} disabled={busy} {...actionName(s)}>{t(s)}</button>)}
             </div>
           )}
           <form className="chat-foot" onSubmit={onSubmit}>
-            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Tulis pertanyaan…" maxLength={2000} disabled={!session || busy} />
-            <button className="primary" disabled={!session || busy || !draft.trim()}>Kirim</button>
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t("chat.placeholder")} maxLength={2000} disabled={!session || busy} />
+            <button className="primary" disabled={!session || busy || !draft.trim()} {...actionName("chat.send")}>{t("chat.send")}</button>
           </form>
         </>
       )}

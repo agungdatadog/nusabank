@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, formatDateTime, RequestError, type RewardItem, type RewardsBalance, type RewardsEntry } from "../api";
+import { actionName, useT } from "../i18n";
 import { rumAction } from "../rum";
 
 const TIER_LABEL = { SILVER: "Silver", GOLD: "Gold", PLATINUM: "Platinum" } as const;
 const points = (n: number) => n.toLocaleString("id-ID");
 
 export function RewardsPage() {
+  const { t } = useT();
   const [balance, setBalance] = useState<RewardsBalance | null>(null);
   const [catalog, setCatalog] = useState<RewardItem[]>([]);
   const [history, setHistory] = useState<RewardsEntry[]>([]);
@@ -15,7 +17,7 @@ export function RewardsPage() {
   const [busy, setBusy] = useState(false);
 
   const load = () => {
-    api.get<RewardsBalance>("/api/rewards").then(setBalance).catch(() => setError("Poin belum dapat dimuat"));
+    api.get<RewardsBalance>("/api/rewards").then(setBalance).catch(() => setError(t("pts.loadError")));
     api.get<RewardsEntry[]>("/api/rewards/history?page_size=15").then(setHistory).catch(() => setHistory([]));
   };
   useEffect(() => {
@@ -33,7 +35,7 @@ export function RewardsPage() {
       rumAction("reward_redeemed", { item: item.code, points: item.points_cost });
       load();
     } catch (err) {
-      setError(err instanceof RequestError ? err.body.message : "Tidak dapat terhubung, silakan coba lagi");
+      setError(err instanceof RequestError ? err.body.message : t("common.networkError"));
     } finally {
       setBusy(false);
     }
@@ -48,36 +50,36 @@ export function RewardsPage() {
       <section className="hero card">
         <div className="stack" style={{ gap: "0.5rem", minWidth: "260px" }}>
           <p className="muted">Nusa Poin</p>
-          <div className="total"><strong>{balance ? points(balance.points) : "…"}</strong> <span className="muted">poin</span></div>
+          <div className="total"><strong>{balance ? points(balance.points) : "…"}</strong> <span className="muted">{t("pts.unit")}</span></div>
           {balance && (
             <>
               <div><span className={`tier ${balance.tier.toLowerCase()}`}>{TIER_LABEL[balance.tier].toUpperCase()}</span></div>
               <div className="progress"><div style={{ width: `${progress}%` }} /></div>
               <p className="muted small">
                 {balance.next_tier
-                  ? `${points(balance.points_to_next_tier ?? 0)} poin lagi dalam 90 hari untuk naik ke ${TIER_LABEL[balance.next_tier]}`
-                  : "Tingkat tertinggi — terima kasih telah menjadi nasabah setia"}
+                  ? t("pts.toNext", { n: points(balance.points_to_next_tier ?? 0), tier: TIER_LABEL[balance.next_tier] })
+                  : t("pts.top")}
               </p>
             </>
           )}
         </div>
         <p className="muted small" style={{ maxWidth: "36ch" }}>
-          Dapatkan poin dari transfer antarbank, top up e-wallet, pulsa dan pembayaran tagihan. Nasabah Prioritas mendapat 1,5× poin, Private 2×.
+          {t("pts.info")}
         </p>
       </section>
 
       {error && <div className="alert">{error}</div>}
       {redeemed && (
         <div className="card stack center-text">
-          <div className="status success">Penukaran Berhasil</div>
+          <div className="status success">{t("pts.redeemed")}</div>
           <p>{redeemed.description}</p>
           {redeemed.voucher_code && <div className="token mono">{redeemed.voucher_code}</div>}
-          <div className="row center"><button className="ghost" onClick={() => setRedeemed(null)}>Tutup</button></div>
+          <div className="row center"><button className="ghost" onClick={() => setRedeemed(null)} {...actionName("common.close")}>{t("common.close")}</button></div>
         </div>
       )}
 
       <div className="card">
-        <h2 className="section-title">Tukar Poin</h2>
+        <h2 className="section-title">{t("pts.redeemTitle")}</h2>
         <div className="grid">
           {catalog.map((item) => {
             const affordable = (balance?.points ?? 0) >= item.points_cost;
@@ -85,14 +87,14 @@ export function RewardsPage() {
               <div key={item.code} className="card stack" style={{ gap: "0.5rem" }}>
                 <strong>{item.name}</strong>
                 {item.description && <span className="small muted">{item.description}</span>}
-                <span>{points(item.points_cost)} poin</span>
+                <span>{t("pts.cost", { n: points(item.points_cost) })}</span>
                 {confirming?.code === item.code ? (
                   <div className="row">
-                    <button className="ghost" onClick={() => setConfirming(null)} disabled={busy}>Batal</button>
-                    <button className="primary" onClick={() => redeem(item)} disabled={busy}>{busy ? "Memproses…" : "Konfirmasi"}</button>
+                    <button className="ghost" onClick={() => setConfirming(null)} disabled={busy} {...actionName("common.cancel")}>{t("common.cancel")}</button>
+                    <button className="primary" onClick={() => redeem(item)} disabled={busy} {...actionName("common.confirm")}>{busy ? t("common.processing") : t("common.confirm")}</button>
                   </div>
                 ) : (
-                  <button className="ghost" onClick={() => setConfirming(item)} disabled={!affordable}>{affordable ? "Tukar" : "Poin belum cukup"}</button>
+                  <button className="ghost" onClick={() => setConfirming(item)} disabled={!affordable} {...actionName("pts.redeem")}>{affordable ? t("pts.redeem") : t("pts.notEnough")}</button>
                 )}
               </div>
             );
@@ -101,9 +103,9 @@ export function RewardsPage() {
       </div>
 
       <div className="card">
-        <h2 className="section-title">Riwayat Poin</h2>
+        <h2 className="section-title">{t("pts.history")}</h2>
         {history.length === 0 ? (
-          <p className="muted">Belum ada riwayat poin.</p>
+          <p className="muted">{t("pts.noHistory")}</p>
         ) : (
           <div className="table-wrap">
             <table className="table">

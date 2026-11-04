@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { actionName, useT } from "../i18n";
 import { ChatWidget } from "./ChatWidget";
+import { LangSwitcher } from "./LangSwitcher";
 
 export function Logo() {
   return (
@@ -17,29 +19,31 @@ export function Logo() {
 export function Layout() {
   const { customer, logout } = useAuth();
   const navigate = useNavigate();
+  const { t } = useT();
   return (
     <div className="app">
       <header className="topbar">
         <Logo />
         <nav>
-          <NavLink to="/" end>Beranda</NavLink>
-          <NavLink to="/transfer" end>Transfer</NavLink>
-          <NavLink to="/transfer/riwayat">Riwayat Transfer</NavLink>
-          <NavLink to="/bayar">Top Up &amp; Tagihan</NavLink>
-          <NavLink to="/pinjaman">Pinjaman</NavLink>
-          <NavLink to="/poin">Poin</NavLink>
+          <NavLink to="/" end {...actionName("nav.home")}>{t("nav.home")}</NavLink>
+          <NavLink to="/transfer" end {...actionName("nav.transfer")}>{t("nav.transfer")}</NavLink>
+          <NavLink to="/transfer/riwayat" {...actionName("nav.transferHistory")}>{t("nav.transferHistory")}</NavLink>
+          <NavLink to="/bayar" {...actionName("nav.bills")}>{t("nav.bills")}</NavLink>
+          <NavLink to="/pinjaman" {...actionName("nav.loans")}>{t("nav.loans")}</NavLink>
+          <NavLink to="/poin" {...actionName("nav.points")}>{t("nav.points")}</NavLink>
         </nav>
         <div className="user">
           <span>{customer?.full_name}</span>
-          {customer && customer.segment !== "REGULAR" && <span className="badge">{customer.segment === "PRIVATE" ? "Private" : "Prioritas"}</span>}
-          <button className="link" onClick={async () => { await logout(); navigate("/login"); }}>Keluar</button>
+          {customer && customer.segment !== "REGULAR" && <span className="badge">{t(customer.segment === "PRIVATE" ? "segment.PRIVATE" : "segment.PRIORITY")}</span>}
+          <LangSwitcher />
+          <button className="link" onClick={async () => { await logout(); navigate("/login"); }} {...actionName("common.signOut")}>{t("common.signOut")}</button>
         </div>
       </header>
       <main className="content">
         <Outlet />
       </main>
       <ChatWidget />
-      <footer className="footer">Nusa Bank adalah bank fiktif untuk demonstrasi. Data nasabah bersifat sintetis.</footer>
+      <footer className="footer">{t("footer.disclaimer")}</footer>
     </div>
   );
 }

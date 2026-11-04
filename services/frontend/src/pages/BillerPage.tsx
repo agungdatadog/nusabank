@@ -4,6 +4,7 @@ import {
   type Account, type BillerCategory, type BillerCategoryCode, type BillerProduct, type BillInquiry, type BillPayment,
 } from "../api";
 import { useAuth } from "../auth";
+import { actionName, useT, type MessageKey } from "../i18n";
 import { rumAction } from "../rum";
 
 type Step = "form" | "confirm" | "result";
@@ -25,10 +26,11 @@ const localPhone = (p?: string) => (p ?? "").replace(/^\+62/, "0").replace(/\D/g
 const total = (a: { amount: { amount: string }; fee: { amount: string } }) =>
   formatMoney({ amount: String(Number(a.amount.amount) + Number(a.fee.amount)), currency: "IDR" });
 
-const STATUS_LABEL: Record<BillPayment["status"], string> = { SUCCESS: "Berhasil", PENDING: "Diproses", FAILED: "Gagal" };
+const STATUS_LABEL: Record<BillPayment["status"], MessageKey> = { SUCCESS: "status.success", PENDING: "status.processing", FAILED: "status.failed" };
 
 export function BillerPage() {
   const { customer } = useAuth();
+  const { t } = useT();
   const [categories, setCategories] = useState<BillerCategory[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [history, setHistory] = useState<BillPayment[]>([]);
@@ -99,9 +101,9 @@ export function BillerPage() {
 
   const fail = (e: unknown) => {
     if (e instanceof RequestError) {
-      setError(e.body.partner ? `${e.body.message} (kode: ${e.body.code})` : e.body.message);
+      setError(e.body.partner ? `${e.body.message} ${t("common.partnerCode", { code: e.body.code })}` : e.body.message);
     } else {
-      setError("Tidak dapat terhubung, silakan coba lagi");
+      setError(t("common.networkError"));
     }
   };
 
@@ -156,7 +158,7 @@ export function BillerPage() {
 
   return (
     <div className="stack narrow">
-      <h1>Top Up &amp; Tagihan</h1>
+      <h1>{t("nav.bills")}</h1>
 
       {step === "form" && (
         <form className="card stack" onSubmit={doInquiry}>
@@ -167,19 +169,19 @@ export function BillerPage() {
           </div>
           {current && current.billers.length > 1 && (
             <label>
-              {category === "EWALLET" ? "E-wallet" : category === "PULSA" || category === "PAKET_DATA" ? "Operator" : "Penyedia"}
+              {t(category === "EWALLET" ? "bill.ewallet" : category === "PULSA" || category === "PAKET_DATA" ? "bill.operator" : "bill.provider")}
               <select value={billerCode} onChange={(e) => { setBillerCode(e.target.value); setProductCode(""); }}>
                 {current.billers.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
               </select>
             </label>
           )}
           <label>
-            {biller?.customer_number_label ?? "Nomor pelanggan"}
+            {biller?.customer_number_label ?? t("bill.customerNumber")}
             <input value={customerNumber} onChange={(e) => onNumber(e.target.value)} inputMode="numeric" required />
           </label>
           {category === "EWALLET" && (
             <label>
-              Nominal top up (Rp)
+              {t("bill.topupAmount")}
               <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="100.000" required />
               <div className="chips">
                 {EWALLET_PRESETS.map((n) => (
@@ -200,7 +202,7 @@ export function BillerPage() {
             </div>
           )}
           <label>
-            Bayar dari rekening
+            {t("bill.payFrom")}
             <select value={source} onChange={(e) => setSource(e.target.value)} required>
               {accounts.map((a) => (
                 <option key={a.account_number} value={a.account_number}>
@@ -210,27 +212,27 @@ export function BillerPage() {
             </select>
           </label>
           {error && <div className="alert">{error}</div>}
-          <button className="primary" disabled={busy || !canSubmit}>{busy ? "Memeriksa…" : "Lanjutkan"}</button>
+          <button className="primary" disabled={busy || !canSubmit} {...actionName("common.continue")}>{busy ? t("bill.checking") : t("common.continue")}</button>
         </form>
       )}
 
       {step === "confirm" && inquiry && (
         <div className="card stack">
-          <h2 className="section-title">Konfirmasi Pembayaran</h2>
+          <h2 className="section-title">{t("bill.confirmTitle")}</h2>
           <dl className="summary">
-            <dt>Layanan</dt><dd>{inquiry.biller_name}{inquiry.product_name ? ` · ${inquiry.product_name}` : ""}</dd>
-            <dt>{biller?.customer_number_label ?? "Nomor"}</dt><dd className="mono">{inquiry.customer_number}</dd>
-            <dt>Nama</dt><dd><strong>{inquiry.customer_name}</strong></dd>
-            {inquiry.period && <><dt>Periode</dt><dd>{inquiry.period}</dd></>}
-            <dt>{inquiry.period ? "Tagihan" : "Nominal"}</dt><dd>{formatMoney(inquiry.amount)}</dd>
-            <dt>Biaya admin</dt><dd>{formatMoney(inquiry.fee)}</dd>
-            <dt>Total</dt><dd><strong>{total(inquiry)}</strong></dd>
-            <dt>Dari rekening</dt><dd className="mono">{maskAccount(source)}</dd>
+            <dt>{t("common.service")}</dt><dd>{inquiry.biller_name}{inquiry.product_name ? ` · ${inquiry.product_name}` : ""}</dd>
+            <dt>{biller?.customer_number_label ?? t("bill.number")}</dt><dd className="mono">{inquiry.customer_number}</dd>
+            <dt>{t("common.name")}</dt><dd><strong>{inquiry.customer_name}</strong></dd>
+            {inquiry.period && <><dt>{t("common.period")}</dt><dd>{inquiry.period}</dd></>}
+            <dt>{inquiry.period ? t("bill.bill") : t("common.amount")}</dt><dd>{formatMoney(inquiry.amount)}</dd>
+            <dt>{t("bill.adminFee")}</dt><dd>{formatMoney(inquiry.fee)}</dd>
+            <dt>{t("common.total")}</dt><dd><strong>{total(inquiry)}</strong></dd>
+            <dt>{t("common.fromAccount")}</dt><dd className="mono">{maskAccount(source)}</dd>
           </dl>
           {error && <div className="alert">{error}</div>}
           <div className="row">
-            <button className="ghost" onClick={() => setStep("form")} disabled={busy}>Ubah</button>
-            <button className="primary" onClick={pay} disabled={busy}>{busy ? "Memproses…" : "Bayar Sekarang"}</button>
+            <button className="ghost" onClick={() => setStep("form")} disabled={busy} {...actionName("common.edit")}>{t("common.edit")}</button>
+            <button className="primary" onClick={pay} disabled={busy} {...actionName("bill.payNow")}>{busy ? t("common.processing") : t("bill.payNow")}</button>
           </div>
         </div>
       )}
@@ -238,23 +240,23 @@ export function BillerPage() {
       {step === "result" && result && (
         <div className="card stack center-text">
           <div className={`status ${result.status.toLowerCase()}`}>
-            {result.status === "SUCCESS" ? "Pembayaran Berhasil" : result.status === "PENDING" ? "Pembayaran Sedang Diproses" : "Pembayaran Gagal"}
+            {t(`bill.${result.status}`)}
           </div>
           <p>{total(result)} · <strong>{result.biller_name}</strong> {result.customer_number}</p>
           {result.token && <div className="token mono">{result.token}</div>}
-          {result.status === "PENDING" && <p className="muted">{result.biller_name} belum memberi konfirmasi. Status akan diperbarui otomatis; dana Anda tetap aman.</p>}
-          {result.failure_reason && <p className="muted">Alasan: {result.failure_reason}</p>}
+          {result.status === "PENDING" && <p className="muted">{t("bill.pendingNote", { biller: result.biller_name })}</p>}
+          {result.failure_reason && <p className="muted">{t("common.reason", { reason: result.failure_reason })}</p>}
           {result.biller_reference && <p className="muted small mono">Ref: {result.biller_reference}</p>}
           <div className="row center">
-            <button className="primary" onClick={reset}>Bayar lagi</button>
+            <button className="primary" onClick={reset} {...actionName("bill.again")}>{t("bill.again")}</button>
           </div>
         </div>
       )}
 
       <div className="card">
-        <h2 className="section-title">Riwayat Pembayaran</h2>
+        <h2 className="section-title">{t("bill.history")}</h2>
         {history.length === 0 ? (
-          <p className="muted">Belum ada pembayaran.</p>
+          <p className="muted">{t("bill.noHistory")}</p>
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -264,7 +266,7 @@ export function BillerPage() {
                     <td className="nowrap small muted">{formatDateTime(p.created_at)}</td>
                     <td>{p.biller_name}{p.product_name ? ` · ${p.product_name}` : ""}<div className="small muted mono">{p.customer_number}</div></td>
                     <td className="right nowrap">{total(p)}</td>
-                    <td><span className={`pill ${p.status.toLowerCase()}`}>{STATUS_LABEL[p.status]}</span></td>
+                    <td><span className={`pill ${p.status.toLowerCase()}`}>{t(STATUS_LABEL[p.status])}</span></td>
                   </tr>
                 ))}
               </tbody>

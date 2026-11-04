@@ -141,3 +141,16 @@ button:disabled { opacity: 0.55; cursor: default; }
   .segmented { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Language switcher: topbar (light on indigo) and floating on the login/apply pages. */
+.lang { position: relative; }
+.lang-btn { display: flex; align-items: center; gap: 0.3rem; background: none; border: none; padding: 0.2rem; color: #cfcdf3; cursor: pointer; }
+.lang-btn:hover { color: white; }
+.lang-code { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; }
+.lang-menu { position: absolute; right: 0; top: calc(100% + 0.5rem); list-style: none; margin: 0; padding: 0.4rem; min-width: 10rem; z-index: 20; box-shadow: 0 8px 24px rgba(29, 27, 51, 0.15); }
+.lang-menu button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: none; border: none; padding: 0.55rem 0.7rem; border-radius: 8px; font: inherit; font-weight: 500; color: var(--ink); cursor: pointer; }
+.lang-menu button:hover { background: var(--indigo-50); }
+.lang-check { color: var(--ok); font-weight: 700; }
+.lang-float { position: absolute; top: 1.25rem; right: 1.5rem; }
+.lang-float .lang-btn { color: var(--indigo); }
+.login { position: relative; }

@@ -1,5 +1,6 @@
 // Thin client for the Nusa Bank API (catalog/openapi.yaml). Same-origin, so RUM can
 // attach trace headers and no CORS is involved.
+import { translate } from "./i18n";
 
 export interface Money {
   amount: string;
@@ -53,7 +54,7 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
     onUnauthorized();
   }
   if (!res.ok) {
-    let err: ApiError = { code: "HTTP_" + res.status, message: "Terjadi kesalahan, silakan coba lagi" };
+    let err: ApiError = { code: "HTTP_" + res.status, message: translate("common.genericError") };
     try {
       err = await res.json();
     } catch {
