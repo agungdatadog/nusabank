@@ -32,6 +32,12 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # Source Code Integration: links errors, traces and profiles to this commit on GitHub.
+            # Must be the commit the image was built from — update it on every image bump.
+            - name: DD_GIT_REPOSITORY_URL
+              value: github.com/agungdatadog/nusabank
+            - name: DD_GIT_COMMIT_SHA
+              value: "a4583c1bf865e67c428c05f375e57167b02bf033"
             - name: SKN_WINDOW_MINUTES
               value: "15"
             - name: SKN_CUTOFF_MINUTES

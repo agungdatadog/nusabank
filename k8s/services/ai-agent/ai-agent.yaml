@@ -45,6 +45,12 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # Source Code Integration: links errors, traces and profiles to this commit on GitHub.
+            # Must be the commit the image was built from — update it on every image bump.
+            - name: DD_GIT_REPOSITORY_URL
+              value: github.com/agungdatadog/nusabank
+            - name: DD_GIT_COMMIT_SHA
+              value: "13b0c934bb2121bb32aca57944ceacac0bb63bd3"
             # Haiku keeps the always-on demo traffic cheap; EP4 can switch models here.
             - name: ANTHROPIC_MODEL
               value: claude-haiku-5-5

@@ -48,6 +48,12 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # Source Code Integration: links errors, traces and profiles to this commit on GitHub.
+            # Must be the commit the image was built from — update it on every image bump.
+            - name: DD_GIT_REPOSITORY_URL
+              value: github.com/agungdatadog/nusabank
+            - name: DD_GIT_COMMIT_SHA
+              value: "656817ff7653a1c3265d11ff01bdcb0bbac5bee6"
             - name: DB_HOST
               value: 10.70.0.7 # indowebinar-pg-core (terraform/infra output cloudsql_private_ips)
             - name: DD_PROFILING_ENABLED
