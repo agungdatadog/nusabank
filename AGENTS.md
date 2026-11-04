@@ -3,10 +3,10 @@
 > Canonical project instructions shared by all coding agents. `CLAUDE.md` is a symlink to this file.
 
 **Nusa Bank** is a fictional Indonesian internet bank. It is the single running
-application behind a four-episode Datadog webinar series for financial services.
+application behind a three-episode Datadog webinar series for financial services.
 See [README.md](./README.md) for the service list, feature map and architecture.
 
-**EP1 air date: 29 October 2026.** Timeline pressure is real — the binding
+**EP1 aired 29 October 2026; EP2 airs 24 November, EP3 22 December.** Timeline pressure is real — the binding
 constraint is *traffic history*, not code volume. Datadog SLOs, monitor baselines,
 Watchdog, Error Tracking grouping and Session Replay all need accumulated calendar
 time. Therefore: **deploy early and keep traffic running**, even when services are
@@ -128,10 +128,9 @@ scenarios, tracked in `docs/episodes/`.
 
 | Episode | What gets added |
 |---------|----------------|
-| EP1 | Business metrics, business↔tech dashboards, Synthetics, healthy baseline |
-| EP2 | Source maps + Error Tracking, Profiler everywhere, `partner-mock` failure scenarios |
-| EP3 | SLOs as code, Software Catalog (`entity.datadog.yaml`), On-Call, Incident Management, Workflow Automation |
-| EP4 | Multi-step `ai-agent`, LLM evaluations, AI Guard, token cost tracking |
+| EP1 — SEE (29 Oct) | Business metrics, business↔tech dashboards, Synthetics, healthy baseline |
+| EP2 — UNDERSTAND & ACT (24 Nov) | Source maps + Error Tracking, Profiler everywhere, `partner-mock` failure scenarios, SLOs as code, Software Catalog (`entity.datadog.yaml`), On-Call, Incident Management, Workflow Automation |
+| EP3 — PROTECT & EVOLVE (22 Dec) | Data residency, Observability Pipelines, Sensitive Data Scanner, multi-step `ai-agent`, LLM evaluations, AI Guard, token cost tracking |
 
 When adding anything, ask which episode it serves. Work that serves no episode is
 out of scope.
