@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-payment
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.2.3"
+    tags.datadoghq.com/version: "0.2.2"
 spec:
   replicas: 2
   selector:
@@ -67,8 +67,8 @@ spec:
           envFrom:
             - secretRef: { name: payment-service }
           resources:
-            requests: { cpu: 150m, memory: 16Mi }
-            limits: { cpu: "1", memory: 24Mi }
+            requests: { cpu: 150m, memory: 96Mi }
+            limits: { cpu: "1", memory: 256Mi }
           livenessProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 20
