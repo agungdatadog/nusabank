@@ -10,7 +10,7 @@ import (
 )
 
 // Operations endpoints for admin-service (cluster-internal, no customer JWT): the
-// cross-customer transfer view and the operator retry that EP3's Workflow Automation drives.
+// cross-customer transfer view and the operator retry that EP2's Workflow Automation drives.
 
 func (s *server) internalListTransfers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

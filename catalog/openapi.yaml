@@ -1190,7 +1190,7 @@ paths:
     post:
       tags: [admin-service]
       operationId: adminRetryTransfer
-      summary: Re-drive a FAILED transfer (EP3 Workflow Automation target)
+      summary: Re-drive a FAILED transfer (EP2 Workflow Automation target)
       security:
         - operatorJwt: []
       responses:
