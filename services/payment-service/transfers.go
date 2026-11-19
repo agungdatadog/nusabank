@@ -56,30 +56,6 @@ func (s *server) listBanks(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, banks)
 }
 
-func (s *server) listRails(w http.ResponseWriter, _ *http.Request) {
-	type window struct {
-		WindowID  string    `json:"window_id"`
-		CutoffAt  time.Time `json:"cutoff_at"`
-		SettlesAt time.Time `json:"settles_at"`
-	}
-	out := []map[string]any{}
-	for _, code := range []string{"INTRABANK", "BIFAST", "SKN"} {
-		rl := rails[code]
-		item := map[string]any{"code": rl.Code, "name": rl.Name, "fee": idr(rl.Fee), "max_amount": idr(rl.MaxAmount)}
-		if code == "SKN" {
-			var ws []window
-			next := nextSKNWindow(time.Now())
-			for i := 0; i < 4; i++ {
-				at := next.Add(time.Duration(i*sknWindowMinutes) * time.Minute)
-				ws = append(ws, window{"SKN-" + at.In(wib).Format("20060102-1504"), at.Add(-sknCutoff), at})
-			}
-			item["clearing_windows"] = ws
-		}
-		out = append(out, item)
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
 // ---- source account ownership ----
 
 func (s *server) ownedSource(ctx context.Context, cif, number string) (*accountRef, error) {
@@ -138,6 +114,10 @@ func (s *server) inquiry(w http.ResponseWriter, r *http.Request) {
 	rl, ok := rails[req.Rail]
 	if !ok {
 		writeErr(w, r, errBadRequest("rail must be INTRABANK, BIFAST or SKN"))
+		return
+	}
+	if err := s.checkRailEnabled(r.Context(), rl.Code, http.StatusUnprocessableEntity); err != nil {
+		writeErr(w, r, err)
 		return
 	}
 	amount, ok := parseIDR(req.Amount.Amount)
@@ -281,6 +261,20 @@ func (s *server) createTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	if !reUUID.MatchString(req.InquiryID) || len(req.Note) > 50 {
 		writeErr(w, r, errBadRequest("inquiry_id must be a UUID and note at most 50 characters"))
+		return
+	}
+
+	// An inquiry made just before the rail was switched off must not reach the partner;
+	// it stays unused, so the customer can pick another rail.
+	var inqRail string
+	switch err := s.db.QueryRowContext(ctx, "SELECT rail FROM inquiries WHERE id = $1 AND cif = $2", req.InquiryID, c.Sub).Scan(&inqRail); {
+	case err == nil:
+		if err := s.checkRailEnabled(ctx, inqRail, http.StatusUnprocessableEntity); err != nil {
+			writeErr(w, r, err)
+			return
+		}
+	case !errors.Is(err, sql.ErrNoRows):
+		writeErr(w, r, err)
 		return
 	}
 

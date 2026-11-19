@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -112,6 +113,38 @@ public class AdminController {
             statsd.incrementCounter("nusabank.admin.transfer_retry.count", "outcome:" + e.code().toLowerCase(), "rail:unknown");
             throw e;
         }
+    }
+
+    @GetMapping("/rails")
+    JsonNode rails() {
+        return downstreams.rails();
+    }
+
+    public record RailAvailabilityRequest(Boolean available, String reason, Integer autoEnableAfterMinutes) {}
+
+    /**
+     * Takes BI FAST or SKN out of service, or puts it back. EP2's Workflow Automation calls this
+     * as ops.otomasi when the rail's error monitor alerts; re-enabling is left to a person.
+     */
+    @PutMapping("/rails/{rail}/availability")
+    JsonNode setRailAvailability(@PathVariable String rail, @RequestBody RailAvailabilityRequest body, HttpServletRequest req) {
+        if (!"BIFAST".equals(rail) && !"SKN".equals(rail)) throw ApiException.notFound("Rail tidak dapat dinonaktifkan");
+        if (body == null || body.available() == null) throw ApiException.badRequest("available is required");
+        String reason = body.reason() == null ? "" : body.reason().trim();
+        if (reason.length() > 200) throw ApiException.badRequest("reason must be at most 200 characters");
+        String op = operator(req);
+        Spans.tagRoot("rail.code", rail);
+        Spans.tagRoot("rail.available", body.available().toString());
+        audit.record(op, body.available() ? "RAIL_ENABLE" : "RAIL_DISABLE", reason.isEmpty() ? rail : rail + ": " + reason);
+        Map<String, Object> change = new java.util.LinkedHashMap<>();
+        change.put("available", body.available());
+        change.put("changed_by", op);
+        if (!reason.isEmpty()) change.put("reason", reason);
+        if (body.autoEnableAfterMinutes() != null) change.put("auto_enable_after_minutes", body.autoEnableAfterMinutes());
+        JsonNode result = downstreams.setRailAvailability(rail, change);
+        statsd.incrementCounter("nusabank.admin.rail_change.count", "rail:" + rail.toLowerCase(), "available:" + body.available(), "operator:" + op);
+        log.info("rail availability changed operator={} rail={} available={} reason={}", op, rail, body.available(), reason);
+        return result;
     }
 
     @GetMapping("/audit-log")

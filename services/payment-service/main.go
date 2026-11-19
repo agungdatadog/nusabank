@@ -95,6 +95,8 @@ func main() {
 		secret:   []byte(cfg.jwtSecret),
 	}
 
+	go s.reportRails(ctx)
+
 	r := chi.NewRouter()
 	r.Use(chitrace.Middleware(chitrace.WithIgnoreRequest(func(r *http.Request) bool {
 		return r.URL.Path == "/healthz" || r.URL.Path == "/readyz"
@@ -121,6 +123,8 @@ func main() {
 		r.Get("/{transferId}", s.getTransfer)
 	})
 	r.Get("/internal/transfers", s.internalListTransfers)
+	r.Get("/internal/rails", s.internalListRails)
+	r.Put("/internal/rails/{rail}/availability", s.internalSetRailAvailability)
 	r.Post("/internal/transfers/{transferId}/retry", s.internalRetryTransfer)
 	r.Post("/internal/rails/skn/settlements", s.sknSettlement)
 	r.Post("/internal/rails/inbound", s.receiveInbound)

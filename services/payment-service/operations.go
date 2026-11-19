@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -57,6 +59,18 @@ func (s *server) internalRetryTransfer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "transferId")
 	if !reUUID.MatchString(id) {
 		writeErr(w, r, errNotFound("Transfer tidak ditemukan"))
+		return
+	}
+	// Re-driving onto a rail that operations switched off would only fail again.
+	var rail string
+	switch err := s.db.QueryRowContext(ctx, "SELECT rail FROM transfers WHERE id = $1", id).Scan(&rail); {
+	case err == nil:
+		if err := s.checkRailEnabled(ctx, rail, http.StatusConflict); err != nil {
+			writeErr(w, r, err)
+			return
+		}
+	case !errors.Is(err, sql.ErrNoRows):
+		writeErr(w, r, err)
 		return
 	}
 	// Claim atomically: concurrent retries of the same transfer cannot both run.

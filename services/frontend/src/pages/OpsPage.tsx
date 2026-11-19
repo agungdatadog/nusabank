@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { formatDateTime, formatMoney, maskAccount, type Customer, type Transfer } from "../api";
+import { formatDateTime, formatMoney, maskAccount, type Customer, type Rail, type Transfer } from "../api";
 import { Logo } from "../components/Layout";
 import { LangSwitcher } from "../components/LangSwitcher";
 import { actionName, translate, useT } from "../i18n";
@@ -18,7 +18,7 @@ interface AuditEntry {
   created_at: string;
 }
 
-type Tab = "transfers" | "customers" | "audit";
+type Tab = "transfers" | "rails" | "customers" | "audit";
 
 async function ops<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = sessionStorage.getItem(OPS_TOKEN);
@@ -53,6 +53,7 @@ export function OpsPage() {
           {signedIn && (
             <>
               <button className={`link ops-tab ${tab === "transfers" ? "active" : ""}`} onClick={() => setTab("transfers")} {...actionName("ops.tabTransfers")}>{t("ops.tabTransfers")}</button>
+              <button className={`link ops-tab ${tab === "rails" ? "active" : ""}`} onClick={() => setTab("rails")} {...actionName("ops.tabRails")}>{t("ops.tabRails")}</button>
               <button className={`link ops-tab ${tab === "customers" ? "active" : ""}`} onClick={() => setTab("customers")} {...actionName("ops.tabCustomers")}>{t("ops.tabCustomers")}</button>
               <button className={`link ops-tab ${tab === "audit" ? "active" : ""}`} onClick={() => setTab("audit")} {...actionName("ops.tabAudit")}>{t("ops.tabAudit")}</button>
             </>
@@ -67,7 +68,7 @@ export function OpsPage() {
       <main className="content">
         {!signedIn ? (
           <OpsLogin onDone={(n) => { setName(n); setSignedIn(true); }} />
-        ) : tab === "transfers" ? <Transfers onUnauthorized={logout} /> : tab === "customers" ? <Customers /> : <Audit />}
+        ) : tab === "transfers" ? <Transfers onUnauthorized={logout} /> : tab === "rails" ? <Rails onUnauthorized={logout} /> : tab === "customers" ? <Customers /> : <Audit />}
       </main>
       <footer className="footer">{t("ops.footer")}</footer>
     </div>
@@ -159,6 +160,76 @@ function Transfers({ onUnauthorized }: { onUnauthorized: () => void }) {
               </tr>
             ))}
             {items.length === 0 && <tr><td colSpan={7} className="muted">{t("ops.noTransfers")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Interbank rail switches. Datadog Workflow Automation (ops.otomasi) turns BI FAST off when
+// its error monitor alerts; turning it back on is an operator's call, made here.
+function Rails({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const { t } = useT();
+  const [items, setItems] = useState<Rail[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    ops<Rail[]>("GET", "/api/admin/rails").then(setItems).catch((e) => (e.status === 401 ? onUnauthorized() : setNotice(e.message)));
+  }, [onUnauthorized]);
+  useEffect(load, [load]);
+
+  const toggle = async (r: Rail) => {
+    const available = !r.available;
+    if (!window.confirm(t(available ? "ops.railConfirmEnable" : "ops.railConfirmDisable", { rail: r.name }))) return;
+    setBusy(r.code);
+    setNotice(null);
+    try {
+      const updated = await ops<Rail>("PUT", `/api/admin/rails/${r.code}/availability`, { available, reason: available ? "Diaktifkan kembali dari Back Office" : "Dinonaktifkan dari Back Office" });
+      setNotice(t("ops.railChanged", { rail: updated.name, state: updated.available ? t("ops.railOn") : t("ops.railOff") }));
+      rumAction("ops_rail_toggle", { rail: r.code, available });
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setBusy(null);
+      load();
+    }
+  };
+
+  return (
+    <div className="stack">
+      <div className="row" style={{ justifyContent: "flex-start", alignItems: "end" }}>
+        <h1 style={{ marginRight: "auto" }}>{t("ops.railsTitle")}</h1>
+        <button className="ghost" onClick={load} {...actionName("ops.reload")}>{t("ops.reload")}</button>
+      </div>
+      <p className="muted small">{t("ops.railsHint")}</p>
+      {notice && <div className="card small">{notice}</div>}
+      <div className="card table-wrap">
+        <table className="table">
+          <thead><tr><th>{t("ops.rail")}</th><th>{t("common.status")}</th><th></th></tr></thead>
+          <tbody>
+            {items.filter((r) => r.code !== "INTRABANK").map((r) => (
+              <tr key={r.code}>
+                <td><strong>{r.name}</strong></td>
+                <td>
+                  <span className={`pill ${r.available ? "success" : "failed"}`}>{r.available ? t("ops.railOn") : t("ops.railOff")}</span>
+                  {!r.available && (
+                    <div className="small muted">
+                      {r.unavailable_reason}
+                      {r.unavailable_since && <> · {t("ops.railSince", { since: formatDateTime(r.unavailable_since) })}</>}
+                      {r.changed_by && <> · {t("ops.railBy", { by: r.changed_by })}</>}
+                      {r.auto_enable_at && <> · {t("ops.railAutoEnable", { at: formatDateTime(r.auto_enable_at) })}</>}
+                    </div>
+                  )}
+                </td>
+                <td className="right">
+                  <button className={r.available ? "ghost" : "primary"} disabled={busy === r.code} onClick={() => toggle(r)} {...actionName(r.available ? "ops.railDisable" : "ops.railEnable")}>
+                    {r.available ? t("ops.railDisable") : t("ops.railEnable")}
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

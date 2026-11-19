@@ -164,10 +164,20 @@ resource "datadog_monitor" "partner_rail_latency" {
 }
 
 resource "datadog_monitor" "partner_rail_errors" {
-  name    = "[Nusa Bank] Rail {{peer.service.name}} is failing"
-  type    = "query alert"
-  query   = "sum(last_10m):100 * default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() > 10"
-  message = "{{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
+  name  = "[Nusa Bank] Rail {{peer.service.name}} is failing"
+  type  = "query alert"
+  query = "sum(last_10m):100 * default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() > 10"
+  # BI FAST alerting hands over to Workflow Automation (workflows.tf), which takes the rail
+  # out of service. Recovery doesn't re-enable it: that stays an operator's decision.
+  message = <<-EOT
+    {{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops.
+    {{#is_exact_match "peer.service.name" "bifast"}}{{#is_alert}}
+    BI FAST is being taken out of service automatically; customers are steered to SKN. Re-enable from /ops → Rail (or the "Pulihkan BI FAST" workflow) once this monitor has recovered. @workflow-nusabank-bifast-auto-disable
+    {{/is_alert}}{{#is_recovery}}
+    BI FAST's error rate is back to normal. If it is still disabled, an operator can re-enable it now from /ops → Rail.
+    {{/is_recovery}}{{/is_exact_match}}
+    External partner — follow the partner outage runbook: ${local.partner_runbook}
+  EOT
   monitor_thresholds {
     critical = 10
     warning  = 3

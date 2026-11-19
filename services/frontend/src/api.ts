@@ -111,6 +111,18 @@ export interface Bank {
   rails: string[];
 }
 
+export interface Rail {
+  code: "INTRABANK" | "BIFAST" | "SKN";
+  name: string;
+  fee: Money;
+  max_amount: Money;
+  available: boolean;
+  unavailable_reason?: string;
+  unavailable_since?: string;
+  auto_enable_at?: string;
+  changed_by?: string;
+}
+
 export interface Inquiry {
   inquiry_id: string;
   rail: string;

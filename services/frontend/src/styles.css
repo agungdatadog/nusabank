@@ -75,10 +75,13 @@ button:disabled { opacity: 0.55; cursor: default; }
 .ghost { background: white; border-color: var(--line); color: var(--indigo); }
 .link { background: none; border: none; padding: 0; color: var(--indigo-600); font-weight: 500; }
 .alert { background: #fdecea; color: var(--bad); border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; }
+.alert.warn { background: #fdf3e1; color: var(--warn); }
 
 .segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
 .segmented button { background: var(--bg); border: 1px solid var(--line); color: var(--ink); display: flex; flex-direction: column; gap: 0.2rem; text-align: left; font-weight: 500; }
 .segmented button.active { border-color: var(--indigo-600); background: var(--indigo-50); }
+.segmented button.off { background: var(--bg); border-style: dashed; }
+.segmented button.off strong { text-decoration: line-through; }
 
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
 .tiles button { background: var(--bg); border: 1px solid var(--line); color: var(--ink); font-weight: 500; padding: 0.8rem 0.6rem; }
