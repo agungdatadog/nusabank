@@ -126,6 +126,8 @@ resource "datadog_monitor" "partner_ppob_latency" {
   message = <<-EOT
     Calls to **{{peer.service.name}}** through the PPOB aggregator have p95 {{value}}s (baseline ~0.45s).
     Payments beyond 8s go PENDING and are retried automatically; customer funds stay on hold.
+
+    External partner — follow the partner outage runbook: ${local.partner_runbook}
   EOT
   monitor_thresholds {
     critical = 3
@@ -139,7 +141,7 @@ resource "datadog_monitor" "partner_ppob_errors" {
   name    = "[Nusa Bank] Biller {{peer.service.name}} is failing"
   type    = "query alert"
   query   = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
-  message = "{{value}}% of calls to **{{peer.service.name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard."
+  message = "{{value}}% of calls to **{{peer.service.name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 10
     warning  = 3
@@ -152,7 +154,7 @@ resource "datadog_monitor" "partner_rail_latency" {
   name    = "[Nusa Bank] Rail {{peer.service.name}} is slow (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.partner.request{env:demo,!peer.service:credit-bureau} by {peer.service} > 3"
-  message = "**{{peer.service.name}}** p95 is {{value}}s (baseline BI FAST ~0.2s, SKN ~0.15s). Transfers that failed on the rail can be retried by an operator from /ops."
+  message = "**{{peer.service.name}}** p95 is {{value}}s (baseline BI FAST ~0.2s, SKN ~0.15s). Transfers that failed on the rail can be retried by an operator from /ops.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 3
     warning  = 1
@@ -165,7 +167,7 @@ resource "datadog_monitor" "partner_rail_errors" {
   name    = "[Nusa Bank] Rail {{peer.service.name}} is failing"
   type    = "query alert"
   query   = "sum(last_10m):100 * default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() > 10"
-  message = "{{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops."
+  message = "{{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 10
     warning  = 3
@@ -178,7 +180,7 @@ resource "datadog_monitor" "partner_credit_bureau_latency" {
   name    = "[Nusa Bank] Credit bureau is slow (p95)"
   type    = "query alert"
   query   = "avg(last_30m):p95:trace.partner.request{env:demo,peer.service:credit-bureau} > 6"
-  message = "Credit bureau p95 is {{value}}s. Credit decisions wait on the bureau; applications are kept and can be resubmitted."
+  message = "Credit bureau p95 is {{value}}s. Credit decisions wait on the bureau; applications are kept and can be resubmitted.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 6
     warning  = 4
