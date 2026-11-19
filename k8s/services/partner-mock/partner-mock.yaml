@@ -14,7 +14,7 @@ metadata:
     app: partner-mock
     app.kubernetes.io/name: partner-mock
     app.kubernetes.io/part-of: nusabank
-    app.kubernetes.io/version: "0.1.4"
+    app.kubernetes.io/version: "0.1.5"
 spec:
   replicas: 1
   strategy:
@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: partner-mock
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.4
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.5
           ports:
             - name: http
               containerPort: 8080

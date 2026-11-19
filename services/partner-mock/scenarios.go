@@ -15,7 +15,8 @@ import (
 
 // defaultScenarioTTL bounds a scenario enabled without expires_at, so a forgotten
 // toggle cannot poison the healthy baseline for days.
-const defaultScenarioTTL = 60 * time.Minute
+// Three hours fits a rehearsal: enough for monitors, SLO burn, Bits AI and an incident to play out.
+const defaultScenarioTTL = 3 * time.Hour
 
 var validTargets = map[string]bool{"bifast": true, "skn": true, "ppob": true, "credit-bureau": true, "fx": true}
 

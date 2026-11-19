@@ -2224,7 +2224,7 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: Auto-disable time, so a forgotten scenario cannot poison the baseline
+          description: Auto-disable time, so a forgotten scenario cannot poison the baseline. Defaults to 3 hours after enabling when omitted.
 
     # ─────────────── Kafka events ───────────────
     EventEnvelope:
