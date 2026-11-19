@@ -30,9 +30,15 @@ outbound calls: `ppob.request` spans in `nusabank-biller` and `partner.request` 
 3. Customer communication: in-app banner "GoPay top-up is temporarily disrupted";
    suggest an alternative e-wallet or rail (BI FAST down → SKN for large transfers).
 4. Do **not** retry in a tight loop — partner outages get worse under retry storms.
+5. BI FAST: Workflow Automation takes it out of service automatically when "Rail bifast is
+   failing" alerts (customers are steered to SKN). Any rail can also be switched off by hand
+   from `/ops` → Rail. A disabled rail re-enables itself after 2 hours.
 
 ## 4. Recover and verify
-- The partner's error rate returns to baseline and the per-partner monitor recovers.
+- The partner's error rate returns to baseline and the per-partner monitor recovers. BI FAST
+  keeps reporting while switched off, because SKN's beneficiary-name check still uses it.
+- Re-enable the rail from `/ops` → Rail (or the "Pulihkan BI FAST" workflow). Only after
+  recovery: re-enabling into a live outage puts customers back on the failing rail.
 - Transfers that ended `FAILED RAIL_UNAVAILABLE` are re-driven by operators from `/ops`.
 - Note the SLO budget consumed (`PPOB billers available`, `Transfer rails available`) in
   the incident postmortem.
