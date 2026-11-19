@@ -35,6 +35,38 @@ with 503. One partner breaks; every other biller stays healthy. Expires on its o
 
 End the drill: `curl -s -X DELETE localhost:8080/__scenarios` (resets every scenario).
 
+## Part 2 — BI FAST: Datadog switches the rail off, a person switches it back on
+
+**Scenario.** `bifast-errors` — 30% of BI FAST calls fail with 503. When the monitor
+"Rail bifast is failing" alerts, the workflow **[Nusa Bank] Nonaktifkan BI FAST saat gangguan**
+(`terraform/datadog/workflows.tf`) takes BI FAST out of service: customers see it greyed out
+with a banner and SKN preselected, so they stop failing at the partner. Re-enabling is a
+human decision, made once the monitor has recovered.
+
+Setup, ~10 min before the segment (after Part 1, or on its own):
+```bash
+kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &
+curl -s -X PUT localhost:8080/__scenarios/bifast-errors -H 'Content-Type: application/json' \
+  -d '{"target":"bifast","enabled":true,"error_rate":0.3,"error_status":503}'
+```
+The monitor alerts within ~2 minutes and the workflow runs immediately (check
+Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` → **Rail**.
+
+| # | Moment | Datadog / app | Talking point |
+|---|--------|---------------|---------------|
+| 1 | BI FAST transfers start failing | Monitor "Rail bifast is failing", `partner.request` errors on `nusabank-payment` → `bifast` | One partner, our code is healthy |
+| 2 | Within a minute, BI FAST is off | Workflow run (monitor trigger → PUT `/api/admin/rails/BIFAST/availability` → change event) | Automation acts in seconds, not when someone reads the page |
+| 3 | What customers see now | `/transfer`: BI FAST struck through, banner, SKN selected; Session Replay before vs after | Customers are redirected instead of failing |
+| 4 | Proof it was a deliberate change | Change Tracking on `nusabank-payment` ("BI FAST dinonaktifkan otomatis"); `/ops` → Audit Log `ops.otomasi RAIL_DISABLE` | Every automated action is auditable — OJK cares |
+| 5 | The partner recovers | Disable the scenario; the monitor recovers (SKN's name check still calls BI FAST, so its error rate keeps reporting) | We know it's safe before we switch back |
+| 6 | A person switches it back | `/ops` → Rail → **Aktifkan kembali**, or run **[Nusa Bank] Pulihkan BI FAST** | Machines switch off, people switch on |
+| 7 | Optional | `/ops` → Transfer: retry the transfers that failed `RAIL_UNAVAILABLE` in the first minutes | Close the loop for affected customers |
+
+End: `curl -s -X DELETE localhost:8080/__scenarios`, then make sure `/ops` → Rail shows BI FAST
+**Aktif**. A disabled rail re-enables itself after 2 hours regardless, so a forgotten switch
+cannot poison the baseline for long.
+
 ## Not ready yet
-- On-Call schedules and monitor notification routing (monitors notify nobody today).
-- Incident Management settings and a recovery Workflow.
+- On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
+  monitor's only handle is the workflow).
+- Incident Management settings; the workflows record change events but don't declare an incident.

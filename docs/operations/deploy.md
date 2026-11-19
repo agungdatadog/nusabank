@@ -94,6 +94,20 @@ visible in LLM Observability (`ml_app:nusabank-assistant`).
 share the password in Secret Manager `indowebinar-demo-operator-password`. Only transfers that
 FAILED with `RAIL_UNAVAILABLE` can be retried; every action lands in the audit log.
 
+The **Rail** tab switches BI FAST or SKN off for new transfers and back on. Datadog Workflow
+Automation does the same as operator `ops.otomasi`, with a long-lived operator token in Secret
+Manager `indowebinar-workflow-operator-token` that `terraform/datadog` puts into the Workflow
+HTTP connection. Create or rotate it (expires 2027-01-31), then re-apply `terraform/datadog`:
+
+```bash
+# first time only
+gcloud secrets create indowebinar-workflow-operator-token --replication-policy=automatic \
+  --labels=app=nusabank,group=indowebinar
+gcloud secrets versions access latest --secret=indowebinar-jwt-secret \
+  | python3 -I tools/workflow/mint-operator-token.py \
+  | gcloud secrets versions add indowebinar-workflow-operator-token --data-file=-
+```
+
 ## Upgrades and tracer injection
 
 GKE node and minor upgrades are excluded until 2026-12-31 (`terraform/infra/gke.tf`): every node

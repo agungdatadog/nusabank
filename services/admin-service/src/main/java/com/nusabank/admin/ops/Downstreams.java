@@ -104,6 +104,27 @@ public class Downstreams {
         }
     }
 
+    public JsonNode rails() {
+        try {
+            return payments.get().uri("/internal/rails").retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            throw down(PAYMENT);
+        }
+    }
+
+    /** Validation answers (400, 404) pass through; anything else means payment-service is down. */
+    public JsonNode setRailAvailability(String rail, java.util.Map<String, Object> change) {
+        try {
+            return payments.put().uri("/internal/rails/{rail}/availability", rail).body(change).retrieve().body(JsonNode.class);
+        } catch (HttpClientErrorException.BadRequest e) {
+            throw ApiException.badRequest(message(e));
+        } catch (HttpClientErrorException.NotFound e) {
+            throw ApiException.notFound(parse(e).path("message").asString("Rail tidak ditemukan"));
+        } catch (RestClientException e) {
+            throw down(PAYMENT);
+        }
+    }
+
     private JsonNode parse(HttpStatusCodeException e) {
         try {
             return mapper.readTree(e.getResponseBodyAsString());

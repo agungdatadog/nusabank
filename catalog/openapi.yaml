@@ -437,7 +437,7 @@ paths:
     get:
       tags: [payment-service]
       operationId: listRails
-      summary: Rail limits, fees and (for SKN) the clearing schedule
+      summary: Rail limits, fees, availability and (for SKN) the clearing schedule
       responses:
         '200':
           description: Rails
@@ -501,7 +501,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422':
-          description: Amount exceeds the rail limit, or rail not supported by bank
+          description: Amount exceeds the rail limit, rail not supported by bank, or rail temporarily disabled by operations (`RAIL_DISABLED`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -562,7 +562,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: Insufficient balance
+          description: Insufficient balance, or the rail was disabled after the inquiry (`RAIL_DISABLED`; the inquiry stays unused)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -624,7 +624,7 @@ paths:
               schema: { $ref: '#/components/schemas/Transfer' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Not retryable (status or failure reason)
+          description: Not retryable (status or failure reason), or the rail is disabled (`RAIL_DISABLED`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -635,6 +635,49 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '502': { $ref: '#/components/responses/PartnerError' }
         '503': { $ref: '#/components/responses/PartnerUnavailable' }
+
+  /internal/rails:
+    get:
+      tags: [payment-service]
+      operationId: internalListRails
+      summary: Rails with availability (admin-service operations view)
+      security: []
+      responses:
+        '200':
+          description: Rails
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rail' }
+
+  /internal/rails/{rail}/availability:
+    parameters:
+      - { name: rail, in: path, required: true, schema: { type: string, enum: [BIFAST, SKN] } }
+    put:
+      tags: [payment-service]
+      operationId: internalSetRailAvailability
+      summary: Take an interbank rail out of service for new transfers, or put it back
+      description: |
+        While a rail is disabled, inquiries and transfers on it get 422 `RAIL_DISABLED` and
+        operator retries get 409, so customers are steered to another rail instead of failing
+        at the partner. A disabled rail re-enables itself after `auto_enable_after_minutes`
+        (default 120) so a forgotten switch cannot degrade the demo baseline. BI FAST account
+        inquiry (beneficiary name check, also used by SKN) is not affected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RailAvailabilityChange' }
+      responses:
+        '200':
+          description: The rail in its new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /internal/rails/skn/settlements:
     post:
@@ -1214,6 +1257,57 @@ paths:
         '502': { $ref: '#/components/responses/PartnerError' }
         '503': { $ref: '#/components/responses/PartnerUnavailable' }
 
+  /api/admin/rails:
+    get:
+      tags: [admin-service]
+      operationId: adminListRails
+      summary: Rails with availability (proxies payment-service)
+      security:
+        - operatorJwt: []
+      responses:
+        '200':
+          description: Rails
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/admin/rails/{rail}/availability:
+    parameters:
+      - { name: rail, in: path, required: true, schema: { type: string, enum: [BIFAST, SKN] } }
+    put:
+      tags: [admin-service]
+      operationId: adminSetRailAvailability
+      summary: Disable or re-enable an interbank rail (EP2 Workflow Automation target)
+      description: |
+        Datadog Workflow Automation disables BI FAST when its error monitor alerts; an operator
+        re-enables it from /ops or the "Pulihkan BI FAST" workflow once the partner has recovered.
+        Audited as RAIL_DISABLE / RAIL_ENABLE.
+      security:
+        - operatorJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [available]
+              properties:
+                available: { type: boolean }
+                reason: { type: string, maxLength: 200, examples: ['Error rate BI FAST 31% (monitor Rail bifast is failing)'] }
+                auto_enable_after_minutes: { type: integer, minimum: 5, maximum: 480, default: 120 }
+      responses:
+        '200':
+          description: The rail in its new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
   /api/admin/audit-log:
     get:
       tags: [admin-service]
@@ -1765,10 +1859,20 @@ components:
           items: { $ref: '#/components/schemas/RailCode' }
     Rail:
       type: object
-      required: [code, name, fee, max_amount]
+      required: [code, name, fee, max_amount, available]
       properties:
         code: { $ref: '#/components/schemas/RailCode' }
         name: { type: string, examples: ['BI FAST'] }
+        available:
+          type: boolean
+          description: false while operations has taken the rail out of service
+        unavailable_reason: { type: string, description: 'Set when available is false' }
+        unavailable_since: { type: string, format: date-time }
+        auto_enable_at:
+          type: string
+          format: date-time
+          description: When a disabled rail re-enables itself if nobody does it first
+        changed_by: { type: string, description: 'Operator who last changed availability', examples: ['ops.otomasi'] }
         fee: { $ref: '#/components/schemas/Money' }
         max_amount:
           allOf: [{ $ref: '#/components/schemas/Money' }]
@@ -1783,6 +1887,14 @@ components:
               window_id: { type: string }
               cutoff_at: { type: string, format: date-time }
               settles_at: { type: string, format: date-time }
+    RailAvailabilityChange:
+      type: object
+      required: [available, changed_by]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, maxLength: 200 }
+        changed_by: { type: string, description: 'Operator username, recorded on the rail' }
+        auto_enable_after_minutes: { type: integer, minimum: 5, maximum: 480, default: 120 }
     Beneficiary:
       type: object
       required: [id, bank_code, bank_name, account_number, account_name]
@@ -2198,7 +2310,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         operator: { type: string, examples: ['ops.rina'] }
-        action: { type: string, examples: ['TRANSFER_RETRY', 'CUSTOMER_SEARCH', 'TRANSFER_LIST', 'LOGIN'] }
+        action: { type: string, examples: ['TRANSFER_RETRY', 'RAIL_DISABLE', 'RAIL_ENABLE', 'CUSTOMER_SEARCH', 'TRANSFER_LIST', 'LOGIN'] }
         target: { type: string }
         created_at: { type: string, format: date-time }
 

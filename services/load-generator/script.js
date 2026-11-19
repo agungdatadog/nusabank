@@ -111,6 +111,11 @@ function transfer(token, c, rail) {
   const p = authed(token, `transfer_${rail.toLowerCase()}`);
   const accts = http.get(`${BASE}/api/accounts`, p);
   http.get(`${BASE}/api/transfers/banks`, p);
+  const railList = http.get(`${BASE}/api/transfers/rails`, p);
+  // The app greys out a rail that operations switched off; customers take the other one.
+  if (railList.status === 200 && rail !== "INTRABANK" && railList.json().some((r) => r.code === rail && r.available === false)) {
+    rail = rail === "BIFAST" ? "SKN" : "BIFAST";
+  }
   think(3, 10); // filling the form
   // People look at their balance first: pick a funded account and never type more than it holds.
   const available = {};

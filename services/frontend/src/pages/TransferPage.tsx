@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, formatDateTime, formatMoney, maskAccount, RequestError, type Account, type Bank, type Inquiry, type Transfer } from "../api";
+import { api, formatDateTime, formatMoney, maskAccount, RequestError, type Account, type Bank, type Inquiry, type Rail, type Transfer } from "../api";
 import { actionName, useT, type MessageKey } from "../i18n";
 import { rumAction, rumError } from "../rum";
 
@@ -26,8 +26,22 @@ export function TransferPage() {
   const [result, setResult] = useState<Transfer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [railState, setRailState] = useState<Rail[]>([]);
+  const [railTouched, setRailTouched] = useState(false);
+
+  // Operations can switch an interbank rail off during a partner outage: show it greyed out
+  // and steer to the alternative instead of letting the customer fail at the partner.
+  const loadRails = () => api.get<Rail[]>("/api/transfers/rails").then(setRailState).catch(() => undefined);
+  const railOff = (r: string) => railState.find((x) => x.code === r)?.available === false;
+  const offRail = railState.find((x) => x.code !== "INTRABANK" && !x.available);
+  useEffect(() => {
+    if (!offRail) return;
+    rumAction("rail_unavailable_shown", { rail: offRail.code });
+    if (!railTouched && rail === offRail.code) setRail(offRail.code === "BIFAST" ? "SKN" : "BIFAST");
+  }, [offRail?.code]);
 
   useEffect(() => {
+    loadRails();
     api.get<{ accounts: Account[] }>("/api/accounts").then((r) => {
       const eligible = r.accounts.filter((a) => (a.product_type === "SAVINGS" || a.product_type === "CURRENT") && a.currency === "IDR");
       setAccounts(eligible);
@@ -65,6 +79,7 @@ export function TransferPage() {
       setStep("confirm");
     } catch (err) {
       fail(err);
+      if (err instanceof RequestError && err.body.code === "RAIL_DISABLED") loadRails();
       // The beneficiary check also crosses the rail, so a partner outage surfaces here first.
       if (!(err instanceof RequestError) || err.status >= 500) {
         rumError(err, { journey: "transfer", step: "inquiry", rail, code: err instanceof RequestError ? err.body.code : "NETWORK", partner: err instanceof RequestError ? err.body.partner : undefined });
@@ -88,6 +103,7 @@ export function TransferPage() {
       const code = err instanceof RequestError ? err.body.code : "NETWORK";
       const partner = err instanceof RequestError ? err.body.partner : undefined;
       rumAction("transfer_failed", { rail, code, partner });
+      if (code === "RAIL_DISABLED") loadRails();
       // Only server and network failures go to Error Tracking; 4xx declines (insufficient funds) are business outcomes.
       if (!(err instanceof RequestError) || err.status >= 500) rumError(err, { journey: "transfer", step: "confirm", rail, code, partner });
       // An inquiry is single-use and payment-service claims it before calling the rail, so retrying
@@ -111,13 +127,18 @@ export function TransferPage() {
   return (
     <div className="stack narrow">
       <h1>Transfer</h1>
+      {step === "form" && offRail && (
+        <div className="alert warn" role="status">
+          {t("tf.railOffBanner", { rail: offRail.name, since: offRail.unavailable_since ? formatDateTime(offRail.unavailable_since) : "-", alt: offRail.code === "BIFAST" ? "SKN" : "BI FAST" })}
+        </div>
+      )}
       {step === "form" && (
         <form className="card stack" onSubmit={doInquiry}>
           <div className="segmented">
             {RAILS.map((r) => (
-              <button type="button" key={r} className={rail === r ? "active" : ""} onClick={() => setRail(r)} data-dd-action-name={r === "INTRABANK" ? "Sesama Nusa Bank" : railLabel(t, r)}>
+              <button type="button" key={r} className={`${rail === r ? "active" : ""} ${railOff(r) ? "off" : ""}`} disabled={railOff(r)} onClick={() => { setRail(r); setRailTouched(true); }} data-dd-action-name={r === "INTRABANK" ? "Sesama Nusa Bank" : railLabel(t, r)}>
                 <strong>{railLabel(t, r)}</strong>
-                <span className="small muted">{t(`tf.hint.${r}`)}</span>
+                <span className="small muted">{railOff(r) ? t("tf.railOff") : t(`tf.hint.${r}`)}</span>
               </button>
             ))}
           </div>

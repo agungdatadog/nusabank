@@ -117,6 +117,8 @@ const id = {
   "tf.again": "Transfer lagi",
   "tf.viewHistory": "Lihat riwayat",
   "tf.noTransfers": "Belum ada transfer",
+  "tf.railOff": "Sementara tidak tersedia",
+  "tf.railOffBanner": "{rail} sedang gangguan dan dinonaktifkan sementara sejak {since} WIB. Transfer ke bank lain tetap bisa lewat {alt}.",
 
   "bill.ewallet": "E-wallet",
   "bill.operator": "Operator",
@@ -273,6 +275,19 @@ const id = {
   "ops.operator": "Operator",
   "ops.action": "Tindakan",
   "ops.target": "Target",
+  "ops.tabRails": "Rail",
+  "ops.railsTitle": "Status Rail Transfer",
+  "ops.railsHint": "Rail yang dinonaktifkan tidak menerima transfer baru; nasabah diarahkan ke rail lain. Aktif kembali otomatis pada batas waktu jika tidak ada yang mengaktifkannya.",
+  "ops.railOn": "Aktif",
+  "ops.railOff": "Nonaktif",
+  "ops.railSince": "sejak {since}",
+  "ops.railAutoEnable": "aktif otomatis {at}",
+  "ops.railBy": "oleh {by}",
+  "ops.railEnable": "Aktifkan kembali",
+  "ops.railDisable": "Nonaktifkan",
+  "ops.railConfirmEnable": "Aktifkan kembali {rail}? Pastikan error rate partner sudah normal.",
+  "ops.railConfirmDisable": "Nonaktifkan {rail} untuk transfer baru?",
+  "ops.railChanged": "{rail} sekarang {state}",
 } as const;
 
 export type MessageKey = keyof typeof id;
@@ -391,6 +406,8 @@ const en: Record<MessageKey, string> = {
   "tf.again": "New transfer",
   "tf.viewHistory": "View history",
   "tf.noTransfers": "No transfers yet",
+  "tf.railOff": "Temporarily unavailable",
+  "tf.railOffBanner": "{rail} is disrupted and temporarily disabled since {since} WIB. Transfers to other banks still work via {alt}.",
 
   "bill.ewallet": "E-wallet",
   "bill.operator": "Operator",
@@ -547,6 +564,19 @@ const en: Record<MessageKey, string> = {
   "ops.operator": "Operator",
   "ops.action": "Action",
   "ops.target": "Target",
+  "ops.tabRails": "Rails",
+  "ops.railsTitle": "Transfer Rail Status",
+  "ops.railsHint": "A disabled rail accepts no new transfers; customers are steered to another rail. It re-enables itself at the deadline if nobody does it first.",
+  "ops.railOn": "Enabled",
+  "ops.railOff": "Disabled",
+  "ops.railSince": "since {since}",
+  "ops.railAutoEnable": "auto-enables {at}",
+  "ops.railBy": "by {by}",
+  "ops.railEnable": "Re-enable",
+  "ops.railDisable": "Disable",
+  "ops.railConfirmEnable": "Re-enable {rail}? Make sure the partner's error rate is back to normal.",
+  "ops.railConfirmDisable": "Disable {rail} for new transfers?",
+  "ops.railChanged": "{rail} is now {state}",
 };
 
 export type Lang = "id" | "en";

@@ -1,0 +1,158 @@
+# EP2 Workflow Automation: when BI FAST's error monitor alerts, take BI FAST out of service
+# so customers are steered to SKN instead of failing at the partner. Turning it back on is a
+# person's decision: /ops → Rail, or the "Pulihkan BI FAST" workflow below.
+# Both call admin-service as operator ops.otomasi (token minted by
+# tools/workflow/mint-operator-token.py), so every switch lands in the bank's audit log.
+
+data "google_secret_manager_secret_version" "workflow_operator_token" {
+  secret = "indowebinar-workflow-operator-token"
+}
+
+resource "datadog_action_connection" "nusabank_ops" {
+  name = "Nusa Bank Back Office (ops.otomasi)"
+  tags = ["team:nusabank", "env:demo"]
+
+  http {
+    base_url = var.base_url
+    token_auth {
+      token {
+        name  = "operatorToken"
+        type  = "SECRET"
+        value = data.google_secret_manager_secret_version.workflow_operator_token.secret_data
+      }
+      header {
+        name  = "Authorization"
+        value = "Bearer {{ operatorToken }}"
+      }
+    }
+  }
+}
+
+locals {
+  workflow_tags = ["team:nusabank", "env:demo", "service:nusabank-payment", "managed-by:terraform"]
+  ops_connection = {
+    env         = "default"
+    connections = [{ connectionId = datadog_action_connection.nusabank_ops.id, label = "INTEGRATION_NUSABANK_OPS" }]
+  }
+
+  # A change event on nusabank-payment: shows in Change Tracking on the service page and
+  # in the incident timeline next to the monitor that caused it.
+  rail_change_event = {
+    for state, v in {
+      disabled = { status = "BI FAST dinonaktifkan otomatis", available = false }
+      enabled  = { status = "BI FAST diaktifkan kembali", available = true }
+      } : state => {
+      category = "change"
+      title    = v.status
+      tags     = ["env:demo", "service:nusabank-payment", "rail:bifast", "team:nusabank"]
+      attributes = {
+        changed_resource   = { name = "rail:BIFAST", type = "configuration" }
+        impacted_resources = [{ name = "nusabank-payment", type = "service" }]
+        prev_value         = { available = !v.available }
+        new_value          = { available = v.available }
+      }
+    }
+  }
+}
+
+resource "datadog_workflow_automation" "bifast_auto_disable" {
+  name        = "[Nusa Bank] Nonaktifkan BI FAST saat gangguan"
+  description = "Triggered by the 'Rail bifast is failing' monitor. Takes BI FAST out of service for new transfers (customers see it greyed out and use SKN), records a change event. Re-enabling is manual."
+  published   = true
+  tags        = local.workflow_tags
+
+  spec_json = jsonencode({
+    handle         = "nusabank-bifast-auto-disable"
+    connectionEnvs = [local.ops_connection]
+    triggers = [{
+      monitorTrigger = { rateLimit = { count = 1, interval = "300s" } }
+      startStepNames = ["Is_BI_FAST_alert"]
+    }]
+    steps = [
+      {
+        name     = "Is_BI_FAST_alert"
+        actionId = "com.datadoghq.core.if"
+        parameters = [
+          { name = "joinOperator", value = "and" },
+          { name = "conditions", value = [
+            { comparisonOperator = "contains", leftValue = "{{ Source.monitor.event.tags }}", rightValue = "peer.service:bifast" },
+          ] },
+        ]
+        outboundEdges = [{ branchName = "true", nextStepName = "Disable_BI_FAST" }]
+      },
+      {
+        name            = "Disable_BI_FAST"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_NUSABANK_OPS"
+        parameters = [
+          { name = "verb", value = "PUT" },
+          { name = "url", value = "${var.base_url}/api/admin/rails/BIFAST/availability" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = jsonencode({
+            available                 = false
+            reason                    = "Otomatis: monitor \"Rail bifast is failing\" alert"
+            auto_enable_after_minutes = 120
+          }) },
+          { name = "responseParsing", value = "json" },
+        ]
+        outboundEdges = [{ branchName = "main", nextStepName = "Record_change" }]
+      },
+      {
+        name     = "Record_change"
+        actionId = "com.datadoghq.dd.events.createEventV2"
+        parameters = [
+          { name = "category", value = local.rail_change_event.disabled.category },
+          { name = "title", value = local.rail_change_event.disabled.title },
+          { name = "tags", value = local.rail_change_event.disabled.tags },
+          { name = "message", value = "Datadog Workflow menonaktifkan BI FAST untuk transfer baru karena monitor {{ Source.monitor.name }} alert. Nasabah diarahkan ke SKN. Aktif otomatis kembali {{ Steps.Disable_BI_FAST.body.auto_enable_at }} jika tidak diaktifkan manual dari /ops." },
+          { name = "attributes", value = merge(local.rail_change_event.disabled.attributes, {
+            author = { name = "Datadog Workflow", type = "automation" }
+          }) },
+        ]
+      },
+    ]
+  })
+}
+
+resource "datadog_workflow_automation" "bifast_restore" {
+  name        = "[Nusa Bank] Pulihkan BI FAST"
+  description = "Run by an operator once the BI FAST error monitor has recovered: puts BI FAST back in service and records a change event."
+  published   = true
+  tags        = local.workflow_tags
+
+  spec_json = jsonencode({
+    connectionEnvs = [local.ops_connection]
+    triggers = [{
+      workflowTrigger = {}
+      startStepNames  = ["Enable_BI_FAST"]
+    }]
+    steps = [
+      {
+        name            = "Enable_BI_FAST"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_NUSABANK_OPS"
+        parameters = [
+          { name = "verb", value = "PUT" },
+          { name = "url", value = "${var.base_url}/api/admin/rails/BIFAST/availability" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = "{\"available\": true, \"reason\": \"Diaktifkan kembali oleh {{ Source.initiator.name }} via Datadog Workflow\"}" },
+          { name = "responseParsing", value = "json" },
+        ]
+        outboundEdges = [{ branchName = "main", nextStepName = "Record_change" }]
+      },
+      {
+        name     = "Record_change"
+        actionId = "com.datadoghq.dd.events.createEventV2"
+        parameters = [
+          { name = "category", value = local.rail_change_event.enabled.category },
+          { name = "title", value = local.rail_change_event.enabled.title },
+          { name = "tags", value = local.rail_change_event.enabled.tags },
+          { name = "message", value = "{{ Source.initiator.name }} mengaktifkan kembali BI FAST setelah partner pulih." },
+          { name = "attributes", value = merge(local.rail_change_event.enabled.attributes, {
+            author = { name = "{{ Source.initiator.name }}", type = "user" }
+          }) },
+        ]
+      },
+    ]
+  })
+}

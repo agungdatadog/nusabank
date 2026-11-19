@@ -29,7 +29,7 @@ metadata:
     app.kubernetes.io/part-of: nusabank
     tags.datadoghq.com/service: nusabank-admin
     tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.0"
+    tags.datadoghq.com/version: "0.2.0"
 spec:
   replicas: 2
   selector:
@@ -46,7 +46,7 @@ spec:
     spec:
       containers:
         - name: admin-service
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/admin-service:0.1.0
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/admin-service:0.2.0
           ports:
             - name: http
               containerPort: 8080
