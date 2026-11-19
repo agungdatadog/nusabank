@@ -5,7 +5,7 @@ import {
 } from "../api";
 import { useAuth } from "../auth";
 import { actionName, useT, type MessageKey } from "../i18n";
-import { rumAction } from "../rum";
+import { rumAction, rumError } from "../rum";
 
 type Step = "form" | "confirm" | "result";
 
@@ -122,6 +122,9 @@ export function BillerPage() {
       setStep("confirm");
     } catch (err) {
       fail(err);
+      if (!(err instanceof RequestError) || err.status >= 500) {
+        rumError(err, { journey: "bill_payment", step: "inquiry", category, biller: billerCode, code: err instanceof RequestError ? err.body.code : "NETWORK", partner: err instanceof RequestError ? err.body.partner : undefined });
+      }
     } finally {
       setBusy(false);
     }
@@ -140,7 +143,15 @@ export function BillerPage() {
       loadHistory();
     } catch (err) {
       fail(err);
-      rumAction("bill_payment_failed", { category, biller: billerCode, code: err instanceof RequestError ? err.body.code : "NETWORK", partner: err instanceof RequestError ? err.body.partner : undefined });
+      const code = err instanceof RequestError ? err.body.code : "NETWORK";
+      const partner = err instanceof RequestError ? err.body.partner : undefined;
+      rumAction("bill_payment_failed", { category, biller: billerCode, code, partner });
+      // Same rule as transfers: server and network failures go to Error Tracking, 4xx declines stay actions.
+      if (!(err instanceof RequestError) || err.status >= 500) rumError(err, { journey: "bill_payment", step: "pay", category, biller: billerCode, code, partner });
+      // biller-service marks the inquiry used before calling the biller, so a retry here would only
+      // return INQUIRY_EXPIRED. Back to the form (fields kept) for a fresh inquiry.
+      setInquiry(null);
+      setStep("form");
     } finally {
       setBusy(false);
     }
