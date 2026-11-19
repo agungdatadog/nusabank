@@ -165,7 +165,12 @@ func (s *scenarioStore) inject(w http.ResponseWriter, r *http.Request, target, b
 			if sc.ErrorStatus == http.StatusGatewayTimeout {
 				code = "PARTNER_TIMEOUT"
 			}
-			writeError(w, r, sc.ErrorStatus, code, fmt.Sprintf("%s is not responding (scenario %s)", partner, sc.ID), partner)
+			// A failing upstream answers slowly, after its own retries; an instant error reads as
+			// injected. The body looks like the partner's gateway and never names the scenario.
+			if latency == 0 {
+				naturalLatency(r.Context(), 600, 2500)
+			}
+			writeError(w, r, sc.ErrorStatus, code, fmt.Sprintf("%s: upstream %s host did not complete the request", http.StatusText(sc.ErrorStatus), partner), partner)
 			return true
 		}
 	}

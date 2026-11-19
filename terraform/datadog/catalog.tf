@@ -12,9 +12,9 @@ resource "datadog_team" "nusabank" {
 }
 
 locals {
+  # partner-mock is absent on purpose: it plays third parties and sends no telemetry (AGENTS.md).
   catalog_services = {
     "nusabank-payment"      = { team = "nusabank-payments", tier = "1", lang = "go", path = "payment-service", title = "Payment Service", desc = "Sends transfers over BI FAST, SKN and internal book transfers; holds funds via account-service first." }
-    "nusabank-partner-mock" = { team = "nusabank-payments", tier = "2", lang = "go", path = "partner-mock", title = "Partner Rails (BI FAST, SKN, billers)", desc = "Stands in for BI FAST, SKN, billers and the credit bureau." }
     "nusabank-account"      = { team = "nusabank-core", tier = "1", lang = "java", path = "account-service", title = "Account Service", desc = "Accounts, balances and holds; balances are a projection of ledger.posted.v1." }
     "nusabank-ledger"       = { team = "nusabank-core", tier = "1", lang = "java", path = "ledger-worker", title = "Ledger Worker", desc = "Source of truth for journals; consumes payment events from Kafka." }
     "nusabank-loan"         = { team = "nusabank-core", tier = "2", lang = "java", path = "loan-service", title = "Loan Service", desc = "Loan applications and credit bureau checks." }
