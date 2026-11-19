@@ -1,0 +1,44 @@
+# Runbook — partner outage (PPOB billers, BI FAST, SKN, credit bureau, FX)
+
+Nusa Bank depends on external partners it cannot see inside. We only observe our own
+outbound calls: `ppob.request` spans in `nusabank-biller` and `partner.request` spans in
+`nusabank-payment` / `nusabank-loan`, tagged `peer.service` (`ppob-gopay`, `bifast`, `skn`,
+`credit-bureau`, …). Traffic leaves the cluster through the partner gateways
+`ppob-gateway`, `interbank-gateway`, `credit-bureau-gateway` and `fx-gateway`.
+
+## 1. Confirm it is the partner, not us
+- The failing span is the **outbound** call (`span.kind:client`) and the error is a 5xx or
+  timeout from the partner. Our own server spans, database and Kafka are healthy.
+- Blast radius: compare `peer.service` values. One biller failing while the others are
+  green means the partner, not the aggregator or our biller-service.
+- Check for a recent deploy of the calling service (Change Tracking). No deploy, partner
+  errors only → treat as a partner incident.
+
+## 2. Customer and money impact
+- Funds are reserved with an account-service **hold** before any partner call.
+  - Partner **503/500**: payment or transfer ends `FAILED`, the hold is released. No money moves.
+  - Partner **timeout/504**: bill payment stays `PENDING` with the hold kept until the
+    background check settles it; transfers end `FAILED RAIL_UNAVAILABLE` and can be retried.
+- Size the impact: `nusabank.biller.payment.count{status:failed} by {biller}`,
+  `nusabank.transfer.count{status:failed} by {rail}`, and the Error Tracking issue for
+  affected users/sessions.
+
+## 3. Act
+1. Declare an incident (SEV-3 for one biller, SEV-2 for BI FAST or the whole aggregator).
+2. Escalate to the partner's operations desk with the time window, error rate and a
+   sample request ID from the span. *(Nusa Bank is fictional — no real contacts here.)*
+3. Customer communication: in-app banner "GoPay top-up is temporarily disrupted";
+   suggest an alternative e-wallet or rail (BI FAST down → SKN for large transfers).
+4. Do **not** retry in a tight loop — partner outages get worse under retry storms.
+
+## 4. Recover and verify
+- The partner's error rate returns to baseline and the per-partner monitor recovers.
+- Transfers that ended `FAILED RAIL_UNAVAILABLE` are re-driven by operators from `/ops`.
+- Note the SLO budget consumed (`PPOB billers available`, `Transfer rails available`) in
+  the incident postmortem.
+
+## Game days
+Resilience drills inject partner faults through `partner-mock`, the stand-in for every
+partner in this demo (see `docs/episodes/ep2-gameday.md`). If an investigation finds an
+active fault scenario, the incident is a drill: report the scenario and its window, then
+follow this runbook as if it were real.

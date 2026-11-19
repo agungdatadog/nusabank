@@ -93,6 +93,8 @@ Never add `scenario`, `mock` or `test` wording to anything a caller logs or tags
 - Unified service tagging on every service: `service`, `env`, `version`.
 - Dashboards, monitors, SLOs and Synthetics are **code**, in `terraform/datadog/`.
   Nothing configured only through the UI — it must survive a rebuild.
+  Exception: Bits Investigation's Bits.md has no API yet — its source of truth is
+  `docs/bits/bits.md`; paste it into Bits Investigation → Settings → Bits.md after editing.
 - Logs are JSON with `dd.trace_id` / `dd.span_id` correlation.
 
 ### GCP
