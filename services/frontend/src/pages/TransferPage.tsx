@@ -65,6 +65,10 @@ export function TransferPage() {
       setStep("confirm");
     } catch (err) {
       fail(err);
+      // The beneficiary check also crosses the rail, so a partner outage surfaces here first.
+      if (!(err instanceof RequestError) || err.status >= 500) {
+        rumError(err, { journey: "transfer", step: "inquiry", rail, code: err instanceof RequestError ? err.body.code : "NETWORK", partner: err instanceof RequestError ? err.body.partner : undefined });
+      }
     } finally {
       setBusy(false);
     }
@@ -86,6 +90,10 @@ export function TransferPage() {
       rumAction("transfer_failed", { rail, code, partner });
       // Only server and network failures go to Error Tracking; 4xx declines (insufficient funds) are business outcomes.
       if (!(err instanceof RequestError) || err.status >= 500) rumError(err, { journey: "transfer", step: "confirm", rail, code, partner });
+      // An inquiry is single-use and payment-service claims it before calling the rail, so retrying
+      // this confirmation can only return INQUIRY_EXPIRED. Back to the form (fields kept) for a fresh one.
+      setInquiry(null);
+      setStep("form");
     } finally {
       setBusy(false);
     }
