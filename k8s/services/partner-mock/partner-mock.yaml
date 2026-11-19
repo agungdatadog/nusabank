@@ -1,5 +1,10 @@
 # Single replica on purpose: scenario state and the SKN clearing queue are in memory,
 # and one instance means a toggle applies to every call. A restart resets to healthy.
+#
+# Deliberately invisible to Datadog (AGENTS.md exception): it plays BI FAST, SKN, the PPOB
+# aggregator, the credit bureau and the FX feed — third parties a bank never sees inside.
+# No tracer, profiler, logs or metrics leave this pod, so an investigation stops at the
+# callers' outbound spans, as it would in production. Operators read `kubectl logs`.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,9 +14,7 @@ metadata:
     app: partner-mock
     app.kubernetes.io/name: partner-mock
     app.kubernetes.io/part-of: nusabank
-    tags.datadoghq.com/service: nusabank-partner-mock
-    tags.datadoghq.com/env: demo
-    tags.datadoghq.com/version: "0.1.3"
+    app.kubernetes.io/version: "0.1.4"
 spec:
   replicas: 1
   strategy:
@@ -23,31 +26,26 @@ spec:
     metadata:
       labels:
         <<: *labels
-        admission.datadoghq.com/enabled: "true"
+      annotations:
+        ad.datadoghq.com/exclude: "true" # no container logs or metrics from the Agent
     spec:
       containers:
         - name: partner-mock
-          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.3
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/partner-mock:0.1.4
           ports:
             - name: http
               containerPort: 8080
           env:
-            # Source Code Integration: links errors, traces and profiles to this commit on GitHub.
-            # Must be the commit the image was built from — update it on every image bump.
-            - name: DD_GIT_REPOSITORY_URL
-              value: github.com/agungdatadog/nusabank
-            - name: DD_GIT_COMMIT_SHA
-              value: "a4583c1bf865e67c428c05f375e57167b02bf033"
+            - name: DD_TRACE_ENABLED
+              value: "false"
+            - name: DD_INSTRUMENTATION_TELEMETRY_ENABLED
+              value: "false"
             - name: SKN_WINDOW_MINUTES
               value: "15"
             - name: SKN_CUTOFF_MINUTES
               value: "2"
             - name: PAYMENT_SERVICE_URL
               value: http://payment-service.nusabank.svc.cluster.local:8080
-            - name: DD_PROFILING_ENABLED
-              value: "true"
-            - name: DD_RUNTIME_METRICS_ENABLED
-              value: "true"
           resources:
             requests: { cpu: 100m, memory: 64Mi }
             limits: { cpu: 500m, memory: 256Mi }
@@ -79,3 +77,45 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+# One host per partner, all served by partner-mock. Callers' outbound spans then show a
+# partner gateway (out.host, peer.service) instead of a hostname that says "mock".
+apiVersion: v1
+kind: Service
+metadata:
+  name: ppob-gateway # PPOB biller aggregator — biller-service
+  namespace: nusabank
+  labels: { app: partner-mock, app.kubernetes.io/name: partner-mock }
+spec:
+  selector: { app: partner-mock }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: interbank-gateway # BI FAST and SKN — payment-service
+  namespace: nusabank
+  labels: { app: partner-mock, app.kubernetes.io/name: partner-mock }
+spec:
+  selector: { app: partner-mock }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-bureau-gateway # credit checks — loan-service
+  namespace: nusabank
+  labels: { app: partner-mock, app.kubernetes.io/name: partner-mock }
+spec:
+  selector: { app: partner-mock }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fx-gateway # FX rate feed — account-service
+  namespace: nusabank
+  labels: { app: partner-mock, app.kubernetes.io/name: partner-mock }
+spec:
+  selector: { app: partner-mock }
+  ports: [{ name: http, port: 8080, targetPort: http }]

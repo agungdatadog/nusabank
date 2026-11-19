@@ -59,7 +59,7 @@ path on Go, AI on Python.**
 | [chat-service](services/chat-service/) | Node.js 22 / TypeScript / Hono | Customer support chat sessions | APM, DBM (MongoDB), AAP |
 | [ai-agent](services/ai-agent/) | Python 3.13 / FastAPI + LangGraph | Multi-step LLM agent (internal only) | LLM Observability, AI Agent Console, AI Guard |
 | [admin-service](services/admin-service/) | Java 21 / Spring Boot 4.1 + Spring Security | Back-office operator console, role-based | APM, Profiler (JVM), SCA |
-| [partner-mock](services/partner-mock/) | Go 1.27 / chi | Simulates BI FAST, SKN clearing, PPOB biller aggregator, credit bureau, FX rates — **with live-togglable latency and error injection** | The failure-injection toolkit for EP2–EP3 |
+| [partner-mock](services/partner-mock/) | Go 1.27 / chi | Simulates BI FAST, SKN clearing, PPOB biller aggregator, credit bureau, FX rates — **with live-togglable latency and error injection** | The failure-injection toolkit for EP2–EP3. **Sends no telemetry** — it plays external partners, so Datadog sees only the callers' outbound spans |
 | [load-generator](services/load-generator/) | k6 | Realistic business traffic + controlled spikes | Traffic history for SLOs and baselines |
 
 ### Feature map

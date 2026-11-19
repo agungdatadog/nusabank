@@ -70,8 +70,15 @@ still thin. Never take the environment down to "finish a service properly".
 - Health probes are dropped at the Agent (`DD_APM_IGNORE_RESOURCES`); don't filter
   them per service.
 
-### Correlation checklist — every service, no exceptions
+### Correlation checklist — every service, one exception
 The series promises one connected picture; a missing link is a broken demo.
+
+**Exception: `partner-mock` sends no telemetry at all** — no tracer, profiler, logs, metrics
+or catalog entry. It plays third parties (BI FAST, SKN, PPOB, credit bureau, FX) that a bank
+never sees inside, so investigations (Bits AI included) must stop at the callers' outbound
+spans and name the partner, not discover a test scenario. Callers reach it through partner
+gateway hosts (`ppob-gateway`, `interbank-gateway`, `credit-bureau-gateway`, `fx-gateway`).
+Never add `scenario`, `mock` or `test` wording to anything a caller logs or tags.
 
 | Link | How |
 |------|-----|
