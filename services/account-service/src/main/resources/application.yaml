@@ -47,3 +47,5 @@ nusabank:
   seed-file: ${SEED_FILE:/app/seed/customers.json}
   fx-cache-seconds: 60
   hold-ttl-minutes: 30
+  # e-Statement "Rekening Lawan" column (counterparty of each transfer). Off until the rollout is signed off.
+  statement-counterparty: ${STATEMENT_COUNTERPARTY:false}

@@ -89,6 +89,15 @@ public class AccountRepository {
                 .param("n", accountNumber).query(StatementRow.class).list();
     }
 
+    /** The other account on the same journal (the far side of a transfer), if it is a Nusa Bank account. */
+    public Optional<String> counterpartyAccount(String reference, String accountNumber) {
+        return jdbc.sql("""
+                SELECT account_number FROM transactions
+                WHERE reference = :ref AND account_number <> :n
+                LIMIT 1""")
+                .param("ref", reference).param("n", accountNumber).query(String.class).optional();
+    }
+
     public int addHeld(String accountNumber, BigDecimal delta) {
         return jdbc.sql("UPDATE accounts SET held = held + :d, updated_at = now() WHERE account_number = :n")
                 .param("d", delta).param("n", accountNumber).update();

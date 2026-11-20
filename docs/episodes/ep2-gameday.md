@@ -3,11 +3,12 @@
 **Framing.** Nusa Bank runs resilience game days: we deliberately break a partner and
 prove we detect it, understand it and recover — the operational-resilience drills OJK
 expects from Indonesian banks. On stage, Bits AI finding the injected fault is a feature:
-the investigation reaches the true cause on its own.
+the investigation reaches the true cause on its own. **Part 3** is the other kind of incident:
+a bug in our own code, which Bits traces to the line and Bits Code fixes.
 
 ## Scenarios
 
-The live show runs **Part 1** and **Part 2**; the rest are spares for rehearsals, Q&A or a
+The live show runs **Parts 1–3**; the rest are spares for rehearsals, Q&A or a
 different story. Click an ID for its flow. Source of truth: the `catalog` in
 `services/partner-mock/scenarios.go` (API in `catalog/openapi.yaml` → `/__scenarios`).
 All are OFF by default and switch themselves off after 3 hours unless the body sets `expires_at`.
@@ -16,6 +17,7 @@ All are OFF by default and switch themselves off after 3 hours unless the body s
 |----|---------|---------------|-------------|-----|
 | [`ppob-gopay-errors`](#ppob-gopay-errors) | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1** — one biller breaks, the rest stay healthy |
 | [`bifast-errors`](#bifast-errors) | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2** — workflow switches the rail off, a person switches it back on |
+| [`estatement-counterparty`](#estatement-counterparty) | — (our code) | `nusabank-account` → `nusabank-payment` | N+1 query on shared `pg-core`: e-Statement and transfers slow | **Part 3** — Bits finds the bug, Bits Code proposes the fix |
 | [`ppob-pln-slow`](#ppob-pln-slow) | PPOB → PLN | `nusabank-biller` | +5 s latency | Spare — one biller slow, no errors |
 | [`ppob-aggregator-down`](#ppob-aggregator-down) | Whole PPOB aggregator | `nusabank-biller` | 100% of calls 503 | Spare — every biller at once, wide blast radius |
 | [`bifast-timeout`](#bifast-timeout) | BI FAST | `nusabank-payment` | +8 s latency | Spare — slow transfers that still succeed |
@@ -40,13 +42,16 @@ rate is rolled.
 
 ## Before going live
 - [ ] Jakarta daytime, so load-generator traffic is high (night is ~8% of peak).
-- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled (`curl -s $S`).
+- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled (`curl -s $S`), and
+      account-service's `STATEMENT_COUNTERPARTY` is `false`.
+- [ ] Datadog GitHub integration can reach `agungdatadog/nusabank` (Bits Code opens its PR there).
 - [ ] Fresh **incognito** window logged in as a demo customer (clean RUM session, latest frontend).
 - [ ] Review Bits Investigation memories from rehearsals; remove stale ones.
 - [ ] Bits.md pasted from `docs/bits/bits.md`.
 - [ ] **Investigate with Bits** enabled on the drill monitors (UI only: monitor → Edit →
       Configure notifications & automations, or Bits Investigation → Monitors → Auto-Investigate).
-      Needed on "Biller … is failing" (Part 1) and "Rail … is failing" (Part 2);
+      Needed on "Biller … is failing" (Part 1), "Rail … is failing" (Part 2), and
+      "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3);
       a monitor re-created by Terraform loses it.
 
 ---
@@ -105,6 +110,41 @@ Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` 
 End: `curl -s -X DELETE $S`, then make sure `/ops` → Rail shows BI FAST **Aktif**. A disabled
 rail re-enables itself after 2 hours regardless, so a forgotten switch cannot poison the
 baseline for long.
+
+<a id="estatement-counterparty"></a>
+## Part 3 — `estatement-counterparty`: our own bug, fixed by Bits Code
+
+Not a partner this time. account-service ships an e-Statement column behind the flag
+`STATEMENT_COUNTERPARTY` ("Rekening Lawan": the other account on each intrabank transfer). Its
+lookup runs one query per statement row on `transactions.reference`, which has no index — an
+N+1 of sequential scans. e-Statements slow down, and because `indowebinar-pg-core` is shared with
+payment and ledger, **transfers slow down with them** (noisy neighbour).
+
+Rehearsed 2026-11-20, daytime traffic: e-Statement p95 0.09 s → 1.6 s and transfer submission p95
+0.23 s → 5.4 s within five minutes; both back to baseline ~2 min after switching off. DBM showed the
+query at 1–2 s per call, all CPU wait, ~1,900 calls in nine minutes.
+
+Start ~15 min before the segment. Each switch is a ~1 min rolling restart of account-service,
+which Datadog records as a deployment:
+```bash
+tools/scenarios/estatement-counterparty.sh on
+```
+Monitors that turn red: **Slow e-Statement download (p95)** (> 0.6 s) and **Slow transfer submission (p95)** (> 3 s).
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | "Transfers are slow" | Monitor "Slow transfer submission (p95)"; APM `nusabank-payment` latency up, `partner.request` spans healthy | Not a partner this time |
+| 2 | Where does the time go? | Trace: payment's own database spans are slow on `pg-core` | The database is busy, and payment isn't the one keeping it busy |
+| 3 | Who is it? | DBM → `indowebinar-pg-core`, database `account`: top query `SELECT account_number FROM transactions WHERE reference = ? AND account_number <> ? LIMIT ?`, caller `nusabank-account` 0.1.5, CPU wait; samples link to the trace | Noisy neighbour, found in minutes |
+| 4 | What changed? | Change Tracking on `nusabank-account`: the rollout just before the slowdown; monitor "Slow e-Statement download (p95)" | Every regression starts with a change |
+| 5 | Root cause in code | Bits investigation → `StatementService.counterpartyOf` calling `AccountRepository.counterpartyAccount` once per row | From alert to file and line |
+| 6 | Fix it | **Bits Code** proposes the change — one batched lookup instead of one per row, plus an index on `reference` — and opens a PR | AI writes the fix, a human reviews it |
+| 7 | Recover | `tools/scenarios/estatement-counterparty.sh off`; both monitors recover | Roll back first, ship the fix through review |
+
+**Don't merge Bits Code's PR** after a rehearsal: it removes the bug this drill depends on. Close it,
+or leave it open to show on stage. End: `tools/scenarios/estatement-counterparty.sh off`, then
+confirm `kubectl -n nusabank get deploy account-service -o jsonpath='{..env[?(@.name=="STATEMENT_COUNTERPARTY")].value}'`
+prints `false`.
 
 ---
 
@@ -213,5 +253,5 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 - On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
   monitor's only handle is the workflow).
 - Incident Management settings; the workflows record change events but don't declare an incident.
-- Scenarios the README promises but nothing toggles yet: the e-Statement N+1 noisy neighbour
-  on `pg-core` (DBM story) and Kafka consumer lag behind a stale balance (DSM story).
+- Scenario the README promises but nothing toggles yet: Kafka consumer lag behind a stale
+  balance (DSM story).

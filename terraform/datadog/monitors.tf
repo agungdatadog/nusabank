@@ -90,7 +90,7 @@ resource "datadog_monitor" "latency_transfer" {
     warning  = 1.5
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-payment"])
 }
 
 resource "datadog_monitor" "latency_bill_payment" {
@@ -104,6 +104,19 @@ resource "datadog_monitor" "latency_bill_payment" {
   }
   require_full_window = false
   tags                = local.monitor_tags
+}
+
+resource "datadog_monitor" "latency_estatement" {
+  name    = "[Nusa Bank] Slow e-Statement download (p95)"
+  type    = "query alert"
+  query   = "avg(last_10m):p95:trace.servlet.request{service:nusabank-account,resource_name:get_/api/accounts/_accountnumber_/statements/_period,env:demo} > 0.6"
+  message = "e-Statement PDF p95 is {{value}}s (baseline ~0.15s). Statements run on pg-core, shared with payment and ledger: check the database spans and DBM before transfers slow down too."
+  monitor_thresholds {
+    critical = 0.6
+    warning  = 0.4
+  }
+  require_full_window = false
+  tags                = concat(local.monitor_tags, ["service:nusabank-account"])
 }
 
 resource "datadog_monitor" "latency_login" {
