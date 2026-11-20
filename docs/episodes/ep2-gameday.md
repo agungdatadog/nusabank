@@ -40,6 +40,9 @@ is required and fields you leave out are cleared. Tune in the body: `latency_ms`
 (RFC 3339). Scenarios on the same partner stack: the highest latency wins, then each error
 rate is rolled.
 
+Each flow starts with **step 0 in the Nusa Bank app**: show the audience the problem as a customer
+sees it, then move to Datadog. Keep the customer browser logged in on the second screen.
+
 Links in the flow tables open the US1 org (`app.datadoghq.com`) and the demo app. They are
 searches by name, service or query rather than IDs, so they survive a Terraform rebuild —
 log in to the demo org first.
@@ -74,6 +77,7 @@ curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: GoPay top-up fails | Customer browser → **Top Up & Tagihan** → GoPay → pick a nominal → pay. 40% fail, so retry until the red error "GoPay sedang gangguan, silakan coba lagi" appears; then pay a PLN token to show it works | — (Nusa Bank app) | This is what our customers are seeing right now | [/bayar](https://136-69-32-40.sslip.io/bayar) |
 | 1 | "A customer complains GoPay top-up fails" | Open Session Replay → search `@usr.id:<CIF>` → open the latest session → **Play**, pause on the GoPay error toast | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
 | 2 | Is it widespread? | From the replay's error event click through to the Error Tracking issue → show the Users / Sessions counts and the `partner` tag | Error Tracking issue "GoPay sedang gangguan…" — users, sessions, `partner:ppob:gopay` | From one complaint to impact | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
 | 3 | Is it us? | Open Traces → **Group by** `peer.service` → click the red `ppob-gopay` row → open one error trace and expand the `ppob.request` span | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo) |
@@ -103,6 +107,7 @@ Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` 
 
 | # | Moment | Do & click | Datadog / app | Talking point | Link |
 |---|--------|------------|---------------|---------------|------|
+| 0 | Show it: BI FAST transfers fail | Customer browser → **Transfer** → another bank (e.g. BCA) via BI FAST → submit; retry until "BI FAST sedang gangguan, silakan coba lagi". If the workflow has already switched BI FAST off, show the banner instead and use Session Replay for the failure | — (Nusa Bank app) | Transfers to other banks are failing | [/transfer](https://136-69-32-40.sslip.io/transfer) |
 | 1 | BI FAST transfers start failing | Open the alerting monitor "Rail bifast is failing" → click **Traces** → open one failed `partner.request` span to `bifast` | Monitor "Rail bifast is failing", `partner.request` errors on `nusabank-payment` → `bifast` | One partner, our code is healthy | [Monitor](https://app.datadoghq.com/monitors/manage?q=Rail%20is%20failing) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20operation_name%3Apartner.request%20peer.service%3Abifast%20env%3Ademo) |
 | 2 | Within a minute, BI FAST is off | Open Workflows → **[Nusa Bank] Nonaktifkan BI FAST saat gangguan** → **Runs** → click the latest run, walk the steps left to right | Workflow run (monitor trigger → PUT `/api/admin/rails/BIFAST/availability` → change event) | Automation acts in seconds, not when someone reads the page | [Workflows](https://app.datadoghq.com/workflow) |
 | 3 | What customers see now | Switch to the customer browser → reload `/transfer` → point at BI FAST struck through, the banner and SKN preselected | `/transfer`: BI FAST struck through, banner, SKN selected; Session Replay before vs after | Customers are redirected instead of failing | [/transfer](https://136-69-32-40.sslip.io/transfer) · [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
@@ -137,6 +142,7 @@ Monitors that turn red: **Slow e-Statement download (p95)** (> 0.6 s) and **Slow
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: everything feels slow | Customer browser → **Beranda** → open an account → download an e-Statement (noticeable wait); then **Transfer** → submit a BI FAST transfer and let the ~5 s spinner run | — (Nusa Bank app) | Two unrelated features slow at once | [/transfer](https://136-69-32-40.sslip.io/transfer) |
 | 1 | "Transfers are slow" | Open the alerting "Slow transfer submission" monitor → click **Traces** → sort by duration, open the slowest | Monitor "Slow transfer submission (p95)"; APM `nusabank-payment` latency up, `partner.request` spans healthy | Not a partner this time | [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20transfer%20submission) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20resource_name%3Apost_%2Fapi%2Ftransfers%20env%3Ademo) |
 | 2 | Where does the time go? | In the flame graph, click the long Postgres spans; show `partner.request` is short | Trace: payment's own database spans are slow on `pg-core` | The database is busy, and payment isn't the one keeping it busy | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20db.system%3Apostgresql%20env%3Ademo) |
 | 3 | Who is it? | Open DBM → **Query Metrics** → host `indowebinar-pg-core` → sort by total time → click the top query → **Samples** → open one trace | DBM → `indowebinar-pg-core`, database `account`: top query `SELECT account_number FROM transactions WHERE reference = ? AND account_number <> ? LIMIT ?`, caller `nusabank-account` 0.1.5, CPU wait; samples link to the trace | Noisy neighbour, found in minutes | [DBM](https://app.datadoghq.com/databases) |
@@ -166,6 +172,7 @@ PLN answers after ~5 s, inside biller-service's 8 s timeout, so payments succeed
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: PLN token takes ages | Customer browser → **Top Up & Tagihan** → PLN → pay; count out the ~5 s wait, then show it succeeded. Pay a GoPay top-up for contrast (instant) | — (Nusa Bank app) | It works, just slowly | [/bayar](https://136-69-32-40.sslip.io/bayar) |
 | 1 | Customers wait on PLN token purchases | Open Session Replay → pick a session with a PLN payment → **Play**, point at the spinner | RUM: long `POST /api/billers/payments` resource on PLN; Session Replay | Slow is the new down | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
 | 2 | Which biller? | Open Traces → **Group by** `peer.service` → sort by p95 → click `ppob-pln` | Monitor "Biller ppob-pln is slow (p95)" (> 3 s); APM `nusabank-biller` → `ppob.request` latency by `peer.service` | One biller, not our code | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20slow) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20peer.service%3Appob-pln%20env%3Ademo) |
 | 3 | Does it hurt the journey? | Open the "Slow bill payment" monitor, then the SLO → compare to before the scenario | Monitor "Slow bill payment (p95)" (> 4 s) and the "Top-up & bill payment: fast" SLO, if PLN is a big enough share of traffic | Partner latency becomes our latency | [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20bill%20payment) · [SLO](https://app.datadoghq.com/slo/manage?query=Top-up%20%26%20bill%20payment) |
@@ -179,6 +186,7 @@ Every biller fails. Contrast with Part 1: same error, completely different blast
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: no bill payment works | Customer browser → **Top Up & Tagihan** → try GoPay, then PLN, then Telkomsel — each shows "… sedang gangguan, silakan coba lagi" | — (Nusa Bank app) | Every biller, every customer | [/bayar](https://136-69-32-40.sslip.io/bayar) |
 | 1 | All top-ups and bill payments fail | Open Monitors → search "Biller is failing" → point at every group red at once | "Biller … is failing" alerts for every `peer.service`; Error Tracking per biller | One upstream, many symptoms | [Monitors](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
 | 2 | Common cause | Open Service Map → click `nusabank-biller` → show all `ppob-*` edges red | APM `nusabank-biller` → all `ppob-*` peers red together; Service Map | Group the alerts, find the shared dependency | [Service Map](https://app.datadoghq.com/apm/map?env=demo) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20status%3Aerror%20env%3Ademo) |
 | 3 | Business impact | Open SLOs → search "Nusa Bank" → click the "Top-up & bill payment: available" SLO, then the critical-journeys SLO | "Top-up & bill payment: available" SLO and the critical-journeys SLO burning; burn-rate alerts | Revenue journey down, not just a service | [SLOs](https://app.datadoghq.com/slo/manage?query=Nusa%20Bank) · [Burn alerts](https://app.datadoghq.com/monitors/manage?q=error%20budget%20burn) |
@@ -193,6 +201,7 @@ workflow trigger.
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: transfers hang | Customer browser → **Transfer** → another bank via BI FAST → submit; let the ~8 s spinner run until it succeeds | — (Nusa Bank app) | Eight seconds is forever on a phone | [/transfer](https://136-69-32-40.sslip.io/transfer) |
 | 1 | Transfers feel stuck | Open Session Replay of a transfer → **Play**, let the ~8 s wait run | RUM: long `POST /api/transfers`; Session Replay of the spinner | Customers notice before error rates do | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
 | 2 | Where is the time? | Open Traces → sort by duration → open the slowest → click the `partner.request` span to `bifast` | Monitor "Rail bifast is slow (p95)" and "Slow transfer submission (p95)"; trace flame graph → `partner.request` to `bifast` | One span holds all the latency | [Monitors](https://app.datadoghq.com/monitors/manage?q=Slow%20transfer) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20operation_name%3Apartner.request%20peer.service%3Abifast%20env%3Ademo) |
 | 3 | Why no auto-switch? | Open Workflows → show the rail workflow has no new run | The rail workflow only reacts to "Rail … is failing" | A slow partner is a human decision; set an `error_status: 504` variant to show the timeout path | [Workflows](https://app.datadoghq.com/workflow) |
@@ -207,6 +216,7 @@ SKN accepts transfers normally but holds each clearing window 30 min longer, so 
 
 | # | Moment | Do & click | Datadog / app | Talking point | Link |
 |---|--------|------------|---------------|---------------|------|
+| 0 | Show it: money hasn't arrived | Enable ≥ 30 min before the segment and send an SKN transfer then. On stage: **Transfer** → **Riwayat Transfer** → the SKN transfer still shows **Diproses** past its expected settlement time | — (Nusa Bank app) | The app says "processing" — for how long? | [/transfer/riwayat](https://136-69-32-40.sslip.io/transfer/riwayat) |
 | 1 | "My SKN transfer still hasn't arrived" | `/ops` → **Transfer** → filter rail SKN, status `PROCESSING` → compare `expected_settlement_at` with now | `/ops` → Transfer filtered to SKN: `PROCESSING` past the expected time | Healthy APM, unhappy customer | [/ops](https://136-69-32-40.sslip.io/ops) |
 | 2 | Find it | Open Logs → look at the gaps between "SKN window applied" lines | Logs: `"SKN window applied"` lines from `nusabank-payment` arriving late | The signal is in the business events | [Logs](https://app.datadoghq.com/logs?query=service%3Anusabank-payment%20%22SKN%20window%20applied%22%20env%3Ademo) |
 | 3 | Close the gap | Nothing to click — say what monitor you would add | Good prompt for a business monitor (settlement lag) — not built yet | Not every outage is a 5xx | — |
@@ -222,6 +232,7 @@ can be resubmitted. Lower `latency_ms` to ~7000 for a slow-but-working variant.
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: loan application fails | Customer browser → **Pinjaman** → **Ajukan Sekarang** → fill in → **Kirim Pengajuan**; after ~8 s: "Pemeriksaan kredit sedang tidak tersedia, pengajuan Anda tersimpan dan dapat dikirim ulang" | — (Nusa Bank app) | A customer trying to borrow from us can't | [/pinjaman](https://136-69-32-40.sslip.io/pinjaman) |
 | 1 | Loan applications fail after 8 s | Customer browser → submit a loan application → wait ~8 s for the error; then open Session Replay of it | RUM / Error Tracking on the loan application; Session Replay | Long wait, then an error | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-loan%20env%3Ademo) |
 | 2 | Which partner? | Open Traces → open a failed trace → click the `partner.request` span to `credit-bureau` | Monitor "Credit bureau is slow (p95)" (> 6 s over 30 min — alerts slowly by design); APM `nusabank-loan` → `partner.request` to `credit-bureau` | Service Map: loan-service → credit-bureau | [Monitor](https://app.datadoghq.com/monitors/manage?q=Credit%20bureau%20is%20slow) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-loan%20operation_name%3Apartner.request%20env%3Ademo) |
 | 3 | Is the rest fine? | Open Service Map → click `nusabank-loan` → show only its bureau edge is red | Login, balance, transfers green | Contained blast radius | [Service Map](https://app.datadoghq.com/apm/map?env=demo) |
@@ -238,6 +249,7 @@ monitor and no `partner.request` span, so the "Rail … is failing" monitor does
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: rates gone, balance shrinks | Wait ≥ 1 min after enabling (cache). Customer browser → **Beranda** (log in as a customer with a USD or JPY account) → **Kurs Valas (IDR)** shows "Kurs sedang tidak tersedia" and **Total saldo (dalam IDR)** is lower | — (Nusa Bank app) | Nothing errored, but the numbers are wrong | [/ (Beranda)](https://136-69-32-40.sslip.io/) |
 | 1 | Customer's total balance looks wrong | Customer browser → open the account page → point at the total without USD/JPY; then open Logs | RUM / Session Replay on the account page; log `FX unavailable, total balance shown without foreign-currency products` | Graceful degradation, still visible | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) · [Logs](https://app.datadoghq.com/logs?query=service%3Anusabank-account%20%22FX%20unavailable%22%20env%3Ademo) |
 | 2 | Find it | Open Traces → filter errors → open one → click the outbound call to `fx-gateway` | APM `nusabank-account` → outbound calls to `fx-gateway` failing; Error Tracking on the rates endpoint | The cache hid it for a minute | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-account%20status%3Aerror%20env%3Ademo) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-account%20env%3Ademo) |
 
@@ -253,6 +265,7 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
+| 0 | Show it: nothing looks wrong | Customer browser → log out → log in as the demo customer: login works normally | — (Nusa Bank app) | Attacks don't announce themselves — customers see nothing | [/login](https://136-69-32-40.sslip.io/login) |
 | 1 | Failed logins pile up | Open login traces → filter errors → **Group by** `@http.useragent` → one client dominates | `nusabank-auth` `POST /api/auth/login` errors from one user agent | Many usernames, one attacker | [Login traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-auth%20resource_name%3Apost_%2Fapi%2Fauth%2Flogin%20env%3Ademo) |
 | 2 | Did Datadog flag it? | Open Security signals → filter `env:demo` → open the newest signal | Credential-stuffing / brute-force signal on the login | Detection without writing a rule | [Security signals](https://app.datadoghq.com/security?query=env%3Ademo) |
 
