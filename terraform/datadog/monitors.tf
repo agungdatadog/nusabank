@@ -120,11 +120,11 @@ resource "datadog_monitor" "latency_login" {
 # ───────────── Third parties (peer.service) ─────────────
 
 resource "datadog_monitor" "partner_ppob_latency" {
-  name    = "[Nusa Bank] Biller {{peer.service.name}} is slow (p95)"
+  name    = "[Nusa Bank] Biller {{[peer.service].name}} is slow (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.ppob.request{env:demo} by {peer.service} > 3"
   message = <<-EOT
-    Calls to **{{peer.service.name}}** through the PPOB aggregator have p95 {{value}}s (baseline ~0.45s).
+    Calls to **{{[peer.service].name}}** through the PPOB aggregator have p95 {{value}}s (baseline ~0.45s).
     Payments beyond 8s go PENDING and are retried automatically; customer funds stay on hold.
 
     External partner — follow the partner outage runbook: ${local.partner_runbook}
@@ -138,10 +138,10 @@ resource "datadog_monitor" "partner_ppob_latency" {
 }
 
 resource "datadog_monitor" "partner_ppob_errors" {
-  name    = "[Nusa Bank] Biller {{peer.service.name}} is failing"
+  name    = "[Nusa Bank] Biller {{[peer.service].name}} is failing"
   type    = "query alert"
   query   = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
-  message = "{{value}}% of calls to **{{peer.service.name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
+  message = "{{value}}% of calls to **{{[peer.service].name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 10
     warning  = 3
@@ -151,10 +151,10 @@ resource "datadog_monitor" "partner_ppob_errors" {
 }
 
 resource "datadog_monitor" "partner_rail_latency" {
-  name    = "[Nusa Bank] Rail {{peer.service.name}} is slow (p95)"
+  name    = "[Nusa Bank] Rail {{[peer.service].name}} is slow (p95)"
   type    = "query alert"
   query   = "avg(last_10m):p95:trace.partner.request{env:demo,!peer.service:credit-bureau} by {peer.service} > 3"
-  message = "**{{peer.service.name}}** p95 is {{value}}s (baseline BI FAST ~0.2s, SKN ~0.15s). Transfers that failed on the rail can be retried by an operator from /ops.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
+  message = "**{{[peer.service].name}}** p95 is {{value}}s (baseline BI FAST ~0.2s, SKN ~0.15s). Transfers that failed on the rail can be retried by an operator from /ops.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
   monitor_thresholds {
     critical = 3
     warning  = 1
@@ -164,14 +164,14 @@ resource "datadog_monitor" "partner_rail_latency" {
 }
 
 resource "datadog_monitor" "partner_rail_errors" {
-  name  = "[Nusa Bank] Rail {{peer.service.name}} is failing"
+  name  = "[Nusa Bank] Rail {{[peer.service].name}} is failing"
   type  = "query alert"
   query = "sum(last_10m):100 * default_zero(sum:trace.partner.request.errors{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count()) / sum:trace.partner.request.hits{env:demo,!peer.service:credit-bureau} by {peer.service}.as_count() > 10"
   # BI FAST alerting hands over to Workflow Automation (workflows.tf), which takes the rail
   # out of service. Recovery doesn't re-enable it: that stays an operator's decision.
   message = <<-EOT
-    {{value}}% of calls to **{{peer.service.name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops.
-    {{#is_exact_match "peer.service.name" "bifast"}}{{#is_alert}}
+    {{value}}% of calls to **{{[peer.service].name}}** failed. Transfers end FAILED RAIL_UNAVAILABLE; once the rail recovers an operator can retry them from /ops.
+    {{#is_exact_match "[peer.service].name" "bifast"}}{{#is_alert}}
     BI FAST is being taken out of service automatically; customers are steered to SKN. Re-enable from /ops → Rail (or the "Pulihkan BI FAST" workflow) once this monitor has recovered. @workflow-nusabank-bifast-auto-disable
     {{/is_alert}}{{#is_recovery}}
     BI FAST's error rate is back to normal. If it is still disabled, an operator can re-enable it now from /ops → Rail.
