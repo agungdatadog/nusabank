@@ -40,6 +40,10 @@ is required and fields you leave out are cleared. Tune in the body: `latency_ms`
 (RFC 3339). Scenarios on the same partner stack: the highest latency wins, then each error
 rate is rolled.
 
+Links in the flow tables open the US1 org (`app.datadoghq.com`) and the demo app. They are
+searches by name, service or query rather than IDs, so they survive a Terraform rebuild —
+log in to the demo org first.
+
 ## Before going live
 - [ ] Jakarta daytime, so load-generator traffic is high (night is ~8% of peak).
 - [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled (`curl -s $S`), and
@@ -68,15 +72,15 @@ curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
   -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
 ```
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | "A customer complains GoPay top-up fails" | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw |
-| 2 | Is it widespread? | Error Tracking issue "GoPay sedang gangguan…" — users, sessions, `partner:ppob:gopay` | From one complaint to impact |
-| 3 | Is it us? | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner |
-| 4 | How bad? | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms |
-| 5 | Root cause, fast | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector |
-| 6 | Act | Incident declared, on-call paged, runbook `docs/runbooks/partner-outage.md` | *(On-Call / Incident / Workflow — still to build)* |
-| 7 | Recover | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | "A customer complains GoPay top-up fails" | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
+| 2 | Is it widespread? | Error Tracking issue "GoPay sedang gangguan…" — users, sessions, `partner:ppob:gopay` | From one complaint to impact | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
+| 3 | Is it us? | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo) |
+| 4 | How bad? | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
+| 5 | Root cause, fast | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
+| 6 | Act | Incident declared, on-call paged, runbook `docs/runbooks/partner-outage.md` | *(On-Call / Incident / Workflow — still to build)* | [Incidents](https://app.datadoghq.com/incidents) |
+| 7 | Recover | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
 
 End: `curl -s -X DELETE $S`.
 
@@ -97,15 +101,15 @@ curl -s -X PUT $S/bifast-errors -H "$J" \
 The monitor alerts within ~2 minutes and the workflow runs immediately (check
 Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` → **Rail**.
 
-| # | Moment | Datadog / app | Talking point |
-|---|--------|---------------|---------------|
-| 1 | BI FAST transfers start failing | Monitor "Rail bifast is failing", `partner.request` errors on `nusabank-payment` → `bifast` | One partner, our code is healthy |
-| 2 | Within a minute, BI FAST is off | Workflow run (monitor trigger → PUT `/api/admin/rails/BIFAST/availability` → change event) | Automation acts in seconds, not when someone reads the page |
-| 3 | What customers see now | `/transfer`: BI FAST struck through, banner, SKN selected; Session Replay before vs after | Customers are redirected instead of failing |
-| 4 | Proof it was a deliberate change | Change Tracking on `nusabank-payment` ("BI FAST dinonaktifkan otomatis"); `/ops` → Audit Log `ops.otomasi RAIL_DISABLE` | Every automated action is auditable — OJK cares |
-| 5 | The partner recovers | Disable the scenario; the monitor recovers (SKN's name check still calls BI FAST, so its error rate keeps reporting) | We know it's safe before we switch back |
-| 6 | A person switches it back | `/ops` → Rail → **Aktifkan kembali**, or run **[Nusa Bank] Pulihkan BI FAST** | Machines switch off, people switch on |
-| 7 | Optional | `/ops` → Transfer: retry the transfers that failed `RAIL_UNAVAILABLE` in the first minutes | Close the loop for affected customers |
+| # | Moment | Datadog / app | Talking point | Link |
+|---|--------|---------------|---------------|------|
+| 1 | BI FAST transfers start failing | Monitor "Rail bifast is failing", `partner.request` errors on `nusabank-payment` → `bifast` | One partner, our code is healthy | [Monitor](https://app.datadoghq.com/monitors/manage?q=Rail%20is%20failing) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20operation_name%3Apartner.request%20peer.service%3Abifast%20env%3Ademo) |
+| 2 | Within a minute, BI FAST is off | Workflow run (monitor trigger → PUT `/api/admin/rails/BIFAST/availability` → change event) | Automation acts in seconds, not when someone reads the page | [Workflows](https://app.datadoghq.com/workflow) |
+| 3 | What customers see now | `/transfer`: BI FAST struck through, banner, SKN selected; Session Replay before vs after | Customers are redirected instead of failing | [/transfer](https://136-69-32-40.sslip.io/transfer) · [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
+| 4 | Proof it was a deliberate change | Change Tracking on `nusabank-payment` ("BI FAST dinonaktifkan otomatis"); `/ops` → Audit Log `ops.otomasi RAIL_DISABLE` | Every automated action is auditable — OJK cares | [Change events](https://app.datadoghq.com/event/explorer?query=service%3Anusabank-payment%20env%3Ademo) · [/ops](https://136-69-32-40.sslip.io/ops) |
+| 5 | The partner recovers | Disable the scenario; the monitor recovers (SKN's name check still calls BI FAST, so its error rate keeps reporting) | We know it's safe before we switch back | [Monitor](https://app.datadoghq.com/monitors/manage?q=Rail%20is%20failing) |
+| 6 | A person switches it back | `/ops` → Rail → **Aktifkan kembali**, or run **[Nusa Bank] Pulihkan BI FAST** | Machines switch off, people switch on | [/ops](https://136-69-32-40.sslip.io/ops) · [Workflows](https://app.datadoghq.com/workflow) |
+| 7 | Optional | `/ops` → Transfer: retry the transfers that failed `RAIL_UNAVAILABLE` in the first minutes | Close the loop for affected customers | [/ops](https://136-69-32-40.sslip.io/ops) |
 
 End: `curl -s -X DELETE $S`, then make sure `/ops` → Rail shows BI FAST **Aktif**. A disabled
 rail re-enables itself after 2 hours regardless, so a forgotten switch cannot poison the
@@ -160,11 +164,11 @@ curl -s -X PUT $S/ppob-pln-slow -H "$J" -d '{"target":"ppob","biller_code":"pln"
 ```
 PLN answers after ~5 s, inside biller-service's 8 s timeout, so payments succeed — slowly.
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | Customers wait on PLN token purchases | RUM: long `POST /api/billers/payments` resource on PLN; Session Replay | Slow is the new down |
-| 2 | Which biller? | Monitor "Biller ppob-pln is slow (p95)" (> 3 s); APM `nusabank-biller` → `ppob.request` latency by `peer.service` | One biller, not our code |
-| 3 | Does it hurt the journey? | Monitor "Slow bill payment (p95)" (> 4 s) and the "Top-up & bill payment: fast" SLO, if PLN is a big enough share of traffic | Partner latency becomes our latency |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | Customers wait on PLN token purchases | RUM: long `POST /api/billers/payments` resource on PLN; Session Replay | Slow is the new down | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
+| 2 | Which biller? | Monitor "Biller ppob-pln is slow (p95)" (> 3 s); APM `nusabank-biller` → `ppob.request` latency by `peer.service` | One biller, not our code | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20slow) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20peer.service%3Appob-pln%20env%3Ademo) |
+| 3 | Does it hurt the journey? | Monitor "Slow bill payment (p95)" (> 4 s) and the "Top-up & bill payment: fast" SLO, if PLN is a big enough share of traffic | Partner latency becomes our latency | [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20bill%20payment) · [SLO](https://app.datadoghq.com/slo/manage?query=Top-up%20%26%20bill%20payment) |
 
 <a id="ppob-aggregator-down"></a>
 ### `ppob-aggregator-down` — the whole PPOB aggregator is down
@@ -173,11 +177,11 @@ curl -s -X PUT $S/ppob-aggregator-down -H "$J" -d '{"target":"ppob","enabled":tr
 ```
 Every biller fails. Contrast with Part 1: same error, completely different blast radius.
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | All top-ups and bill payments fail | "Biller … is failing" alerts for every `peer.service`; Error Tracking per biller | One upstream, many symptoms |
-| 2 | Common cause | APM `nusabank-biller` → all `ppob-*` peers red together; Service Map | Group the alerts, find the shared dependency |
-| 3 | Business impact | "Top-up & bill payment: available" SLO and the critical-journeys SLO burning; burn-rate alerts | Revenue journey down, not just a service |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | All top-ups and bill payments fail | "Biller … is failing" alerts for every `peer.service`; Error Tracking per biller | One upstream, many symptoms | [Monitors](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
+| 2 | Common cause | APM `nusabank-biller` → all `ppob-*` peers red together; Service Map | Group the alerts, find the shared dependency | [Service Map](https://app.datadoghq.com/apm/map?env=demo) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20status%3Aerror%20env%3Ademo) |
+| 3 | Business impact | "Top-up & bill payment: available" SLO and the critical-journeys SLO burning; burn-rate alerts | Revenue journey down, not just a service | [SLOs](https://app.datadoghq.com/slo/manage?query=Nusa%20Bank) · [Burn alerts](https://app.datadoghq.com/monitors/manage?q=error%20budget%20burn) |
 
 <a id="bifast-timeout"></a>
 ### `bifast-timeout` — BI FAST answers, but only after 8 s
@@ -187,11 +191,11 @@ curl -s -X PUT $S/bifast-timeout -H "$J" -d '{"target":"bifast","enabled":true,"
 Payment-service waits up to 10 s for a rail, so transfers succeed after ~8 s — no errors, no
 workflow trigger.
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | Transfers feel stuck | RUM: long `POST /api/transfers`; Session Replay of the spinner | Customers notice before error rates do |
-| 2 | Where is the time? | Monitor "Rail bifast is slow (p95)" and "Slow transfer submission (p95)"; trace flame graph → `partner.request` to `bifast` | One span holds all the latency |
-| 3 | Why no auto-switch? | The rail workflow only reacts to "Rail … is failing" | A slow partner is a human decision; set an `error_status: 504` variant to show the timeout path |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | Transfers feel stuck | RUM: long `POST /api/transfers`; Session Replay of the spinner | Customers notice before error rates do | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
+| 2 | Where is the time? | Monitor "Rail bifast is slow (p95)" and "Slow transfer submission (p95)"; trace flame graph → `partner.request` to `bifast` | One span holds all the latency | [Monitors](https://app.datadoghq.com/monitors/manage?q=Slow%20transfer) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20operation_name%3Apartner.request%20peer.service%3Abifast%20env%3Ademo) |
+| 3 | Why no auto-switch? | The rail workflow only reacts to "Rail … is failing" | A slow partner is a human decision; set an `error_status: 504` variant to show the timeout path | [Workflows](https://app.datadoghq.com/workflow) |
 
 <a id="skn-settlement-delay"></a>
 ### `skn-settlement-delay` — SKN settles 30 min late
@@ -201,11 +205,11 @@ curl -s -X PUT $S/skn-settlement-delay -H "$J" -d '{"target":"skn","enabled":tru
 SKN accepts transfers normally but holds each clearing window 30 min longer, so transfers stay
 `PROCESSING` past their `expected_settlement_at`. Nothing errors and no monitor covers it.
 
-| # | Moment | Datadog / app | Talking point |
-|---|--------|---------------|---------------|
-| 1 | "My SKN transfer still hasn't arrived" | `/ops` → Transfer filtered to SKN: `PROCESSING` past the expected time | Healthy APM, unhappy customer |
-| 2 | Find it | Logs: `"SKN window applied"` lines from `nusabank-payment` arriving late | The signal is in the business events |
-| 3 | Close the gap | Good prompt for a business monitor (settlement lag) — not built yet | Not every outage is a 5xx |
+| # | Moment | Datadog / app | Talking point | Link |
+|---|--------|---------------|---------------|------|
+| 1 | "My SKN transfer still hasn't arrived" | `/ops` → Transfer filtered to SKN: `PROCESSING` past the expected time | Healthy APM, unhappy customer | [/ops](https://136-69-32-40.sslip.io/ops) |
+| 2 | Find it | Logs: `"SKN window applied"` lines from `nusabank-payment` arriving late | The signal is in the business events | [Logs](https://app.datadoghq.com/logs?query=service%3Anusabank-payment%20%22SKN%20window%20applied%22%20env%3Ademo) |
+| 3 | Close the gap | Good prompt for a business monitor (settlement lag) — not built yet | Not every outage is a 5xx | — |
 
 <a id="credit-bureau-slow"></a>
 ### `credit-bureau-slow` — the credit bureau stalls
@@ -216,11 +220,11 @@ curl -s -X PUT $S/credit-bureau-slow -H "$J" -d '{"target":"credit-bureau","enab
 `PARTNER_TIMEOUT` ("Pemeriksaan kredit sedang tidak tersedia…"); the application is saved and
 can be resubmitted. Lower `latency_ms` to ~7000 for a slow-but-working variant.
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | Loan applications fail after 8 s | RUM / Error Tracking on the loan application; Session Replay | Long wait, then an error |
-| 2 | Which partner? | Monitor "Credit bureau is slow (p95)" (> 6 s over 30 min — alerts slowly by design); APM `nusabank-loan` → `partner.request` to `credit-bureau` | Service Map: loan-service → credit-bureau |
-| 3 | Is the rest fine? | Login, balance, transfers green | Contained blast radius |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | Loan applications fail after 8 s | RUM / Error Tracking on the loan application; Session Replay | Long wait, then an error | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-loan%20env%3Ademo) |
+| 2 | Which partner? | Monitor "Credit bureau is slow (p95)" (> 6 s over 30 min — alerts slowly by design); APM `nusabank-loan` → `partner.request` to `credit-bureau` | Service Map: loan-service → credit-bureau | [Monitor](https://app.datadoghq.com/monitors/manage?q=Credit%20bureau%20is%20slow) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-loan%20operation_name%3Apartner.request%20env%3Ademo) |
+| 3 | Is the rest fine? | Login, balance, transfers green | Contained blast radius | [Service Map](https://app.datadoghq.com/apm/map?env=demo) |
 
 <a id="fx-feed-down"></a>
 ### `fx-feed-down` — no FX rates
@@ -232,10 +236,10 @@ enabling. Then the rates endpoint returns 502 ("Kurs valas sedang tidak tersedia
 portfolio total drops USD/JPY products instead of failing the page. FX has no dedicated
 monitor and no `partner.request` span, so the "Rail … is failing" monitor doesn't see it.
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | Customer's total balance looks wrong | RUM / Session Replay on the account page; log `FX unavailable, total balance shown without foreign-currency products` | Graceful degradation, still visible |
-| 2 | Find it | APM `nusabank-account` → outbound calls to `fx-gateway` failing; Error Tracking on the rates endpoint | The cache hid it for a minute |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | Customer's total balance looks wrong | RUM / Session Replay on the account page; log `FX unavailable, total balance shown without foreign-currency products` | Graceful degradation, still visible | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) · [Logs](https://app.datadoghq.com/logs?query=service%3Anusabank-account%20%22FX%20unavailable%22%20env%3Ademo) |
+| 2 | Find it | APM `nusabank-account` → outbound calls to `fx-gateway` failing; Error Tracking on the rates endpoint | The cache hid it for a minute | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-account%20status%3Aerror%20env%3Ademo) · [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-account%20env%3Ademo) |
 
 <a id="credential-stuffing"></a>
 ### `credential-stuffing` — slow attack on the login (EP3)
@@ -246,6 +250,8 @@ kubectl delete -f tools/scenarios/credential-stuffing.yaml   # stop
 A k6 job sends 2 logins/s with non-existent usernames for 12 min (hard stop at 20 min). No
 real demo account is locked. Shows up on `nusabank-auth` as failed logins from one client
 signature — App & API Protection / Cloud SIEM rather than this game day.
+Links: [Login traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-auth%20resource_name%3Apost_%2Fapi%2Fauth%2Flogin%20env%3Ademo) ·
+[Security signals](https://app.datadoghq.com/security?query=env%3Ademo).
 
 ---
 
