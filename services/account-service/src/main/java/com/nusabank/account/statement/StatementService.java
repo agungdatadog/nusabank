@@ -1,5 +1,6 @@
 package com.nusabank.account.statement;
 
+import com.nusabank.account.NusaProperties;
 import com.nusabank.account.account.AccountRepository;
 import com.nusabank.account.web.ApiException;
 import com.nusabank.account.web.Money;
@@ -30,9 +31,11 @@ public class StatementService {
     private static final Font HEAD = new Font(Font.HELVETICA, 8, Font.BOLD);
 
     private final AccountRepository repo;
+    private final boolean counterparty;
 
-    public StatementService(AccountRepository repo) {
+    public StatementService(AccountRepository repo, NusaProperties props) {
         this.repo = repo;
+        this.counterparty = props.statementCounterparty();
     }
 
     public byte[] render(AccountRepository.AccountRow account, String holderName, String period) {
@@ -55,14 +58,20 @@ public class StatementService {
         doc.add(new Paragraph("Dicetak: " + LocalDate.now(WIB), BODY));
         doc.add(new Paragraph(" "));
 
-        var table = new PdfPTable(new float[] {2.2f, 5f, 1.2f, 2.2f, 2.4f});
+        var table = counterparty
+                ? new PdfPTable(new float[] {2.2f, 4f, 2.4f, 1.2f, 2.2f, 2.4f})
+                : new PdfPTable(new float[] {2.2f, 5f, 1.2f, 2.2f, 2.4f});
         table.setWidthPercentage(100);
-        for (String h : new String[] {"Tanggal", "Keterangan", "D/K", "Jumlah", "Saldo"}) {
+        String[] headers = counterparty
+                ? new String[] {"Tanggal", "Keterangan", "Rekening Lawan", "D/K", "Jumlah", "Saldo"}
+                : new String[] {"Tanggal", "Keterangan", "D/K", "Jumlah", "Saldo"};
+        for (String h : headers) {
             table.addCell(new PdfPCell(new Phrase(h, HEAD)));
         }
         for (var t : txns) {
             table.addCell(new Phrase(t.postedAt().atZoneSameInstant(WIB).format(DAY), BODY));
             table.addCell(new Phrase(t.description(), BODY));
+            if (counterparty) table.addCell(new Phrase(counterpartyOf(t, account.accountNumber()), BODY));
             table.addCell(new Phrase("CREDIT".equals(t.type()) ? "K" : "D", BODY));
             table.addCell(right(Money.of(t.amount(), t.currency()).amount()));
             table.addCell(right(Money.of(t.balanceAfter(), t.currency()).amount()));
@@ -70,6 +79,14 @@ public class StatementService {
         doc.add(table);
         doc.close();
         return out.toByteArray();
+    }
+
+    /** Intrabank transfers show the other Nusa Bank account, masked; anything else has no counterparty here. */
+    private String counterpartyOf(AccountRepository.TransactionRow t, String accountNumber) {
+        if (t.reference() == null) return "-";
+        return repo.counterpartyAccount(t.reference(), accountNumber)
+                .map(n -> "•••• " + n.substring(n.length() - 4))
+                .orElse("-");
     }
 
     private static PdfPCell right(String text) {
