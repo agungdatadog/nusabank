@@ -11,13 +11,15 @@ with 503. One partner breaks; every other biller stays healthy. Expires on its o
 
 ## Before going live
 - [ ] Jakarta daytime, so load-generator traffic is high (night is ~8% of peak).
-- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled.
+- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled, `STATEMENT_COUNTERPARTY` false.
+- [ ] Datadog GitHub integration has access to `agungdatadog/nusabank` (Bits Code needs it to open a PR).
 - [ ] Fresh **incognito** window logged in as a demo customer (clean RUM session, latest frontend).
 - [ ] Review Bits Investigation memories from rehearsals; remove stale ones.
 - [ ] Bits.md pasted from `docs/bits/bits.md`.
 - [ ] **Investigate with Bits** enabled on the drill monitors (UI only: monitor → Edit →
       Configure notifications & automations, or Bits Investigation → Monitors → Auto-Investigate).
-      Needed on "Biller … is failing" (GoPay drill) and "Rail … is failing" (BI FAST, Part 2);
+      Needed on "Biller … is failing" (GoPay drill), "Rail … is failing" (BI FAST, Part 2) and
+      "Slow transfer submission (p95)" / "Slow e-Statement download (p95)" (Part 3);
       a monitor re-created by Terraform loses it.
 - [ ] Start the drill ~15 min before the segment so the monitor has alerted:
   ```bash
@@ -69,6 +71,39 @@ Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` 
 End: `curl -s -X DELETE localhost:8080/__scenarios`, then make sure `/ops` → Rail shows BI FAST
 **Aktif**. A disabled rail re-enables itself after 2 hours regardless, so a forgotten switch
 cannot poison the baseline for long.
+
+## Part 3 — Our own bug: Bits finds it, Bits Code fixes it
+
+**Scenario.** Not a partner this time. account-service ships an e-Statement feature behind a flag,
+`STATEMENT_COUNTERPARTY` ("Rekening Lawan": the other account on each intrabank transfer). Its
+lookup runs one query per statement row, on `transactions.reference`, which has no index: an N+1
+of sequential scans. e-Statements slow down, and because `indowebinar-pg-core` is shared,
+**BI FAST and intrabank transfers slow down with them** (noisy neighbour). Rehearsal 2026-11-20,
+daytime traffic: statement p95 0.09 s → 1.6 s and transfer submission p95 0.23 s → 5.4 s within
+five minutes; both back to baseline about two minutes after switching off. DBM shows the query at
+1–2 s per call, all CPU, and ~1,900 calls in nine minutes.
+
+Setup, ~15 min before the segment (each switch is a ~1 min rolling restart of account-service,
+recorded by Datadog as a deployment):
+```bash
+tools/scenarios/estatement-counterparty.sh on
+```
+Monitors that turn red: **Slow e-Statement download (p95)** and **Slow transfer submission (p95)**.
+Enable **Investigate with Bits** on both (UI only, see the checklist above).
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | "Transfers are slow" | Monitor "Slow transfer submission (p95)"; APM `nusabank-payment` latency, partner spans healthy | Not a partner this time |
+| 2 | Where does the time go? | Trace: payment's database spans slow on `pg-core`; DBM → `indowebinar-pg-core` load by service | The database is busy, and payment isn't the one keeping it busy |
+| 3 | Who is it? | DBM → `indowebinar-pg-core`, database `account`: top query `SELECT account_number FROM transactions WHERE reference = ? AND account_number <> ? LIMIT ?`, caller `nusabank-account` 0.1.5, waiting on CPU; samples link to the trace | Noisy neighbour, found in minutes |
+| 4 | What changed? | Change Tracking on `nusabank-account`: the flag rollout right before the slowdown | Every regression starts with a change |
+| 5 | Root cause in code | Bits investigation → `StatementService.counterpartyOf`, one query per row (`AccountRepository.counterpartyAccount`) | From alert to file and line |
+| 6 | Fix it | **Bits Code** proposes the change (one batched query instead of one per row, and an index on `reference`) and opens a PR | AI that writes the fix, a human reviews it |
+| 7 | Recover | `tools/scenarios/estatement-counterparty.sh off`; both monitors recover | Roll back first, ship the fix through review |
+
+**Do not merge Bits Code's PR** after a rehearsal: it removes the bug the drill depends on. Close it,
+or keep it open to show on stage. End: `tools/scenarios/estatement-counterparty.sh off`, then check
+`kubectl -n nusabank get deploy account-service -o yaml | grep -A1 STATEMENT_COUNTERPARTY` shows `false`.
 
 ## Not ready yet
 - On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
