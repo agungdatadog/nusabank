@@ -135,15 +135,15 @@ tools/scenarios/estatement-counterparty.sh on
 ```
 Monitors that turn red: **Slow e-Statement download (p95)** (> 0.6 s) and **Slow transfer submission (p95)** (> 3 s).
 
-| # | Moment | Datadog | Talking point |
-|---|--------|---------|---------------|
-| 1 | "Transfers are slow" | Monitor "Slow transfer submission (p95)"; APM `nusabank-payment` latency up, `partner.request` spans healthy | Not a partner this time |
-| 2 | Where does the time go? | Trace: payment's own database spans are slow on `pg-core` | The database is busy, and payment isn't the one keeping it busy |
-| 3 | Who is it? | DBM → `indowebinar-pg-core`, database `account`: top query `SELECT account_number FROM transactions WHERE reference = ? AND account_number <> ? LIMIT ?`, caller `nusabank-account` 0.1.5, CPU wait; samples link to the trace | Noisy neighbour, found in minutes |
-| 4 | What changed? | Change Tracking on `nusabank-account`: the rollout just before the slowdown; monitor "Slow e-Statement download (p95)" | Every regression starts with a change |
-| 5 | Root cause in code | Bits investigation → `StatementService.counterpartyOf` calling `AccountRepository.counterpartyAccount` once per row | From alert to file and line |
-| 6 | Fix it | **Bits Code** proposes the change — one batched lookup instead of one per row, plus an index on `reference` — and opens a PR | AI writes the fix, a human reviews it |
-| 7 | Recover | `tools/scenarios/estatement-counterparty.sh off`; both monitors recover | Roll back first, ship the fix through review |
+| # | Moment | Datadog | Talking point | Link |
+|---|--------|---------|---------------|------|
+| 1 | "Transfers are slow" | Monitor "Slow transfer submission (p95)"; APM `nusabank-payment` latency up, `partner.request` spans healthy | Not a partner this time | [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20transfer%20submission) · [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20resource_name%3Apost_%2Fapi%2Ftransfers%20env%3Ademo) |
+| 2 | Where does the time go? | Trace: payment's own database spans are slow on `pg-core` | The database is busy, and payment isn't the one keeping it busy | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-payment%20db.system%3Apostgresql%20env%3Ademo) |
+| 3 | Who is it? | DBM → `indowebinar-pg-core`, database `account`: top query `SELECT account_number FROM transactions WHERE reference = ? AND account_number <> ? LIMIT ?`, caller `nusabank-account` 0.1.5, CPU wait; samples link to the trace | Noisy neighbour, found in minutes | [DBM](https://app.datadoghq.com/databases) |
+| 4 | What changed? | Change Tracking on `nusabank-account`: the rollout just before the slowdown; monitor "Slow e-Statement download (p95)" | Every regression starts with a change | [Change events](https://app.datadoghq.com/event/explorer?query=service%3Anusabank-account%20env%3Ademo) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20e-Statement%20download) |
+| 5 | Root cause in code | Bits investigation → `StatementService.counterpartyOf` calling `AccountRepository.counterpartyAccount` once per row | From alert to file and line | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Slow%20e-Statement%20download) |
+| 6 | Fix it | **Bits Code** proposes the change — one batched lookup instead of one per row, plus an index on `reference` — and opens a PR | AI writes the fix, a human reviews it | — |
+| 7 | Recover | `tools/scenarios/estatement-counterparty.sh off`; both monitors recover | Roll back first, ship the fix through review | [Monitors](https://app.datadoghq.com/monitors/manage?q=Slow) |
 
 **Don't merge Bits Code's PR** after a rehearsal: it removes the bug this drill depends on. Close it,
 or leave it open to show on stage. End: `tools/scenarios/estatement-counterparty.sh off`, then
