@@ -5,6 +5,8 @@
 # No notification handle yet: alerts show in Monitors and on the dashboard.
 
 locals {
+  # Partner monitors also carry the calling service's tag: Bits auto-investigates only
+  # monitors it can tie to a service, and the investigation starts from that caller.
   monitor_tags = ["team:nusabank", "env:demo", "managed-by:terraform"]
 }
 
@@ -134,7 +136,7 @@ resource "datadog_monitor" "partner_ppob_latency" {
     warning  = 1.5
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-biller"])
 }
 
 resource "datadog_monitor" "partner_ppob_errors" {
@@ -147,7 +149,7 @@ resource "datadog_monitor" "partner_ppob_errors" {
     warning  = 3
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-biller"])
 }
 
 resource "datadog_monitor" "partner_rail_latency" {
@@ -160,7 +162,7 @@ resource "datadog_monitor" "partner_rail_latency" {
     warning  = 1
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-payment"])
 }
 
 resource "datadog_monitor" "partner_rail_errors" {
@@ -183,7 +185,7 @@ resource "datadog_monitor" "partner_rail_errors" {
     warning  = 3
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-payment"])
 }
 
 resource "datadog_monitor" "partner_credit_bureau_latency" {
@@ -196,7 +198,7 @@ resource "datadog_monitor" "partner_credit_bureau_latency" {
     warning  = 4
   }
   require_full_window = false
-  tags                = local.monitor_tags
+  tags                = concat(local.monitor_tags, ["service:nusabank-loan"])
 }
 
 # ───────────── Event pipeline ─────────────
