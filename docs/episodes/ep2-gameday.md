@@ -1,32 +1,68 @@
-# EP2 — UNDERSTAND & ACT: the GoPay game day
+# EP2 — UNDERSTAND & ACT: game day runbook
 
 **Framing.** Nusa Bank runs resilience game days: we deliberately break a partner and
 prove we detect it, understand it and recover — the operational-resilience drills OJK
 expects from Indonesian banks. On stage, Bits AI finding the injected fault is a feature:
 the investigation reaches the true cause on its own.
 
-**Scenario.** `ppob-gopay-errors` — 40% of GoPay calls through the PPOB aggregator fail
-with 503. One partner breaks; every other biller stays healthy. Expires on its own after
-3 hours (partner-mock default).
+## Scenarios
+
+The live show runs **Part 1** and **Part 2**; the rest are spares for rehearsals, Q&A or a
+different story. Click an ID for its flow. Source of truth: the `catalog` in
+`services/partner-mock/scenarios.go` (API in `catalog/openapi.yaml` → `/__scenarios`).
+All are OFF by default and switch themselves off after 3 hours unless the body sets `expires_at`.
+
+| ID | Partner | Caller in APM | What breaks | Use |
+|----|---------|---------------|-------------|-----|
+| [`ppob-gopay-errors`](#ppob-gopay-errors) | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1** — one biller breaks, the rest stay healthy |
+| [`bifast-errors`](#bifast-errors) | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2** — workflow switches the rail off, a person switches it back on |
+| [`ppob-pln-slow`](#ppob-pln-slow) | PPOB → PLN | `nusabank-biller` | +5 s latency | Spare — one biller slow, no errors |
+| [`ppob-aggregator-down`](#ppob-aggregator-down) | Whole PPOB aggregator | `nusabank-biller` | 100% of calls 503 | Spare — every biller at once, wide blast radius |
+| [`bifast-timeout`](#bifast-timeout) | BI FAST | `nusabank-payment` | +8 s latency | Spare — slow transfers that still succeed |
+| [`skn-settlement-delay`](#skn-settlement-delay) | SKN | `nusabank-payment` | Settlement window +30 min | Spare — late money, no errors at all |
+| [`credit-bureau-slow`](#credit-bureau-slow) | Credit bureau | `nusabank-loan` | +12 s latency (past the 8 s timeout) | Spare — loan applications fail with timeouts |
+| [`fx-feed-down`](#fx-feed-down) | FX rate feed | `nusabank-account` | 100% of calls 503 | Spare — USD/JPY rates unavailable |
+| [`credential-stuffing`](#credential-stuffing) | — (attack traffic) | `nusabank-auth` | 2 bad logins/s for 12 min | Better suited to EP3 (PROTECT) |
+
+### Switching scenarios
+```bash
+kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &
+S=localhost:8080/__scenarios; J='Content-Type: application/json'
+
+curl -s $S                 # what is on, and when it expires
+curl -s -X DELETE $S       # everything off — healthy baseline
+```
+A PUT **replaces** the scenario, so always send the full body from the flow below — `target`
+is required and fields you leave out are cleared. Tune in the body: `latency_ms`, `error_rate`
+(0–1), `error_status` (500, 503 or 504 — 504 shows as `PARTNER_TIMEOUT`), `expires_at`
+(RFC 3339). Scenarios on the same partner stack: the highest latency wins, then each error
+rate is rolled.
 
 ## Before going live
 - [ ] Jakarta daytime, so load-generator traffic is high (night is ~8% of peak).
-- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled.
+- [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled (`curl -s $S`).
 - [ ] Fresh **incognito** window logged in as a demo customer (clean RUM session, latest frontend).
 - [ ] Review Bits Investigation memories from rehearsals; remove stale ones.
 - [ ] Bits.md pasted from `docs/bits/bits.md`.
 - [ ] **Investigate with Bits** enabled on the drill monitors (UI only: monitor → Edit →
       Configure notifications & automations, or Bits Investigation → Monitors → Auto-Investigate).
-      Needed on "Biller … is failing" (GoPay drill) and "Rail … is failing" (BI FAST, Part 2);
+      Needed on "Biller … is failing" (Part 1) and "Rail … is failing" (Part 2);
       a monitor re-created by Terraform loses it.
-- [ ] Start the drill ~15 min before the segment so the monitor has alerted:
-  ```bash
-  kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &
-  curl -s -X PUT localhost:8080/__scenarios/ppob-gopay-errors -H 'Content-Type: application/json' \
-    -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
-  ```
 
-## Flow on stage
+---
+
+<a id="ppob-gopay-errors"></a>
+## Part 1 — `ppob-gopay-errors`: GoPay is failing
+
+40% of GoPay calls through the PPOB aggregator fail with 503. One partner breaks; every
+other biller stays healthy.
+
+Start ~15 min before the segment so the monitor has alerted:
+```bash
+curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
+  -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
+```
+
 | # | Moment | Datadog | Talking point |
 |---|--------|---------|---------------|
 | 1 | "A customer complains GoPay top-up fails" | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw |
@@ -37,20 +73,20 @@ with 503. One partner breaks; every other biller stays healthy. Expires on its o
 | 6 | Act | Incident declared, on-call paged, runbook `docs/runbooks/partner-outage.md` | *(On-Call / Incident / Workflow — still to build)* |
 | 7 | Recover | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix |
 
-End the drill: `curl -s -X DELETE localhost:8080/__scenarios` (resets every scenario).
+End: `curl -s -X DELETE $S`.
 
-## Part 2 — BI FAST: Datadog switches the rail off, a person switches it back on
+<a id="bifast-errors"></a>
+## Part 2 — `bifast-errors`: Datadog switches the rail off, a person switches it back on
 
-**Scenario.** `bifast-errors` — 30% of BI FAST calls fail with 503. When the monitor
-"Rail bifast is failing" alerts, the workflow **[Nusa Bank] Nonaktifkan BI FAST saat gangguan**
-(`terraform/datadog/workflows.tf`) takes BI FAST out of service: customers see it greyed out
-with a banner and SKN preselected, so they stop failing at the partner. Re-enabling is a
-human decision, made once the monitor has recovered.
+30% of BI FAST calls fail with 503. When the monitor "Rail bifast is failing" alerts, the
+workflow **[Nusa Bank] Nonaktifkan BI FAST saat gangguan** (`terraform/datadog/workflows.tf`)
+takes BI FAST out of service: customers see it greyed out with a banner and SKN preselected,
+so they stop failing at the partner. Re-enabling is a human decision, made once the monitor
+has recovered.
 
-Setup, ~10 min before the segment (after Part 1, or on its own):
+Start ~10 min before the segment (after Part 1, or on its own):
 ```bash
-kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &
-curl -s -X PUT localhost:8080/__scenarios/bifast-errors -H 'Content-Type: application/json' \
+curl -s -X PUT $S/bifast-errors -H "$J" \
   -d '{"target":"bifast","enabled":true,"error_rate":0.3,"error_status":503}'
 ```
 The monitor alerts within ~2 minutes and the workflow runs immediately (check
@@ -66,55 +102,112 @@ Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` 
 | 6 | A person switches it back | `/ops` → Rail → **Aktifkan kembali**, or run **[Nusa Bank] Pulihkan BI FAST** | Machines switch off, people switch on |
 | 7 | Optional | `/ops` → Transfer: retry the transfers that failed `RAIL_UNAVAILABLE` in the first minutes | Close the loop for affected customers |
 
-End: `curl -s -X DELETE localhost:8080/__scenarios`, then make sure `/ops` → Rail shows BI FAST
-**Aktif**. A disabled rail re-enables itself after 2 hours regardless, so a forgotten switch
-cannot poison the baseline for long.
+End: `curl -s -X DELETE $S`, then make sure `/ops` → Rail shows BI FAST **Aktif**. A disabled
+rail re-enables itself after 2 hours regardless, so a forgotten switch cannot poison the
+baseline for long.
 
-## All scenarios
+---
 
-Parts 1 and 2 use two of these; the rest are spares for rehearsals, Q&A or a different story.
-Source of truth: the `catalog` in `services/partner-mock/scenarios.go` (API in
-`catalog/openapi.yaml` → `/__scenarios`). All are OFF by default and switch themselves off
-after 3 hours unless the body sets `expires_at`.
+## Spare scenarios
 
-### Partner failures (partner-mock)
-| ID | Partner | Caller in APM | What breaks | Demo angle |
-|----|---------|---------------|-------------|------------|
-| `ppob-gopay-errors` | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1.** One biller breaks, the rest stay healthy |
-| `ppob-pln-slow` | PPOB → PLN | `nusabank-biller` | +5 s latency | One biller slow, no errors — latency-only investigation |
-| `ppob-aggregator-down` | Whole PPOB aggregator | `nusabank-biller` | 100% of calls 503 | Every biller fails at once: wide blast radius |
-| `bifast-errors` | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2.** Workflow switches the rail off, a person switches it back on |
-| `bifast-timeout` | BI FAST | `nusabank-payment` | +8 s latency | Slow transfers and timeouts |
-| `skn-settlement-delay` | SKN | `nusabank-payment` | Settlement window +30 min | Late settlement, no errors at all |
-| `credit-bureau-slow` | Credit bureau | `nusabank-loan` | +12 s latency | Loan application hangs |
-| `fx-feed-down` | FX rate feed | `nusabank-account` | 100% of calls 503 | Multi-currency (USD/JPY) rates unavailable |
+Not rehearsed on stage yet — the flows below follow from the code and Terraform monitors;
+confirm them in a rehearsal before relying on one live. End any of them with `curl -s -X DELETE $S`.
 
-A PUT **replaces** the scenario, so send the full body — `target` is required and fields you
-leave out are cleared. With port-forward running (`kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &`):
+<a id="ppob-pln-slow"></a>
+### `ppob-pln-slow` — PLN is slow, nothing fails
 ```bash
-S=localhost:8080/__scenarios; J='Content-Type: application/json'
-curl -s -X PUT $S/ppob-gopay-errors    -H "$J" -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
-curl -s -X PUT $S/ppob-pln-slow        -H "$J" -d '{"target":"ppob","biller_code":"pln","enabled":true,"latency_ms":5000}'
-curl -s -X PUT $S/ppob-aggregator-down -H "$J" -d '{"target":"ppob","enabled":true,"error_rate":1,"error_status":503}'
-curl -s -X PUT $S/bifast-errors        -H "$J" -d '{"target":"bifast","enabled":true,"error_rate":0.3,"error_status":503}'
-curl -s -X PUT $S/bifast-timeout       -H "$J" -d '{"target":"bifast","enabled":true,"latency_ms":8000}'
-curl -s -X PUT $S/skn-settlement-delay -H "$J" -d '{"target":"skn","enabled":true,"skn_window_delay_minutes":30}'
-curl -s -X PUT $S/credit-bureau-slow   -H "$J" -d '{"target":"credit-bureau","enabled":true,"latency_ms":12000}'
-curl -s -X PUT $S/fx-feed-down         -H "$J" -d '{"target":"fx","enabled":true,"error_rate":1,"error_status":503}'
-
-curl -s $S                 # what is on, and when it expires
-curl -s -X DELETE $S       # everything off — healthy baseline
+curl -s -X PUT $S/ppob-pln-slow -H "$J" -d '{"target":"ppob","biller_code":"pln","enabled":true,"latency_ms":5000}'
 ```
-Tune any of them in the body: `latency_ms`, `error_rate` (0–1), `error_status` (500, 503 or
-504 — 504 shows as `PARTNER_TIMEOUT`), `expires_at` (RFC 3339). Scenarios on the same partner
-stack: the highest latency wins, then each error rate is rolled.
+PLN answers after ~5 s, inside biller-service's 8 s timeout, so payments succeed — slowly.
 
-### Attack traffic (`tools/scenarios/`)
-| Scenario | What it does | Run / stop |
-|----------|--------------|------------|
-| `credential-stuffing` | k6 job, 2 logins/s against `/api/auth/login` with non-existent usernames for 12 min (hard stop 20 min). No real account is locked | `kubectl apply -f tools/scenarios/credential-stuffing.yaml` / `kubectl delete -f …` |
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | Customers wait on PLN token purchases | RUM: long `POST /api/billers/payments` resource on PLN; Session Replay | Slow is the new down |
+| 2 | Which biller? | Monitor "Biller ppob-pln is slow (p95)" (> 3 s); APM `nusabank-biller` → `ppob.request` latency by `peer.service` | One biller, not our code |
+| 3 | Does it hurt the journey? | Monitor "Slow bill payment (p95)" (> 4 s) and the "Top-up & bill payment: fast" SLO, if PLN is a big enough share of traffic | Partner latency becomes our latency |
 
-Better suited to EP3 (PROTECT) than to this game day.
+<a id="ppob-aggregator-down"></a>
+### `ppob-aggregator-down` — the whole PPOB aggregator is down
+```bash
+curl -s -X PUT $S/ppob-aggregator-down -H "$J" -d '{"target":"ppob","enabled":true,"error_rate":1,"error_status":503}'
+```
+Every biller fails. Contrast with Part 1: same error, completely different blast radius.
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | All top-ups and bill payments fail | "Biller … is failing" alerts for every `peer.service`; Error Tracking per biller | One upstream, many symptoms |
+| 2 | Common cause | APM `nusabank-biller` → all `ppob-*` peers red together; Service Map | Group the alerts, find the shared dependency |
+| 3 | Business impact | "Top-up & bill payment: available" SLO and the critical-journeys SLO burning; burn-rate alerts | Revenue journey down, not just a service |
+
+<a id="bifast-timeout"></a>
+### `bifast-timeout` — BI FAST answers, but only after 8 s
+```bash
+curl -s -X PUT $S/bifast-timeout -H "$J" -d '{"target":"bifast","enabled":true,"latency_ms":8000}'
+```
+Payment-service waits up to 10 s for a rail, so transfers succeed after ~8 s — no errors, no
+workflow trigger.
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | Transfers feel stuck | RUM: long `POST /api/transfers`; Session Replay of the spinner | Customers notice before error rates do |
+| 2 | Where is the time? | Monitor "Rail bifast is slow (p95)" and "Slow transfer submission (p95)"; trace flame graph → `partner.request` to `bifast` | One span holds all the latency |
+| 3 | Why no auto-switch? | The rail workflow only reacts to "Rail … is failing" | A slow partner is a human decision; set an `error_status: 504` variant to show the timeout path |
+
+<a id="skn-settlement-delay"></a>
+### `skn-settlement-delay` — SKN settles 30 min late
+```bash
+curl -s -X PUT $S/skn-settlement-delay -H "$J" -d '{"target":"skn","enabled":true,"skn_window_delay_minutes":30}'
+```
+SKN accepts transfers normally but holds each clearing window 30 min longer, so transfers stay
+`PROCESSING` past their `expected_settlement_at`. Nothing errors and no monitor covers it.
+
+| # | Moment | Datadog / app | Talking point |
+|---|--------|---------------|---------------|
+| 1 | "My SKN transfer still hasn't arrived" | `/ops` → Transfer filtered to SKN: `PROCESSING` past the expected time | Healthy APM, unhappy customer |
+| 2 | Find it | Logs: `"SKN window applied"` lines from `nusabank-payment` arriving late | The signal is in the business events |
+| 3 | Close the gap | Good prompt for a business monitor (settlement lag) — not built yet | Not every outage is a 5xx |
+
+<a id="credit-bureau-slow"></a>
+### `credit-bureau-slow` — the credit bureau stalls
+```bash
+curl -s -X PUT $S/credit-bureau-slow -H "$J" -d '{"target":"credit-bureau","enabled":true,"latency_ms":12000}'
+```
+12 s is past loan-service's 8 s read timeout, so every credit check ends in 503
+`PARTNER_TIMEOUT` ("Pemeriksaan kredit sedang tidak tersedia…"); the application is saved and
+can be resubmitted. Lower `latency_ms` to ~7000 for a slow-but-working variant.
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | Loan applications fail after 8 s | RUM / Error Tracking on the loan application; Session Replay | Long wait, then an error |
+| 2 | Which partner? | Monitor "Credit bureau is slow (p95)" (> 6 s over 30 min — alerts slowly by design); APM `nusabank-loan` → `partner.request` to `credit-bureau` | Service Map: loan-service → credit-bureau |
+| 3 | Is the rest fine? | Login, balance, transfers green | Contained blast radius |
+
+<a id="fx-feed-down"></a>
+### `fx-feed-down` — no FX rates
+```bash
+curl -s -X PUT $S/fx-feed-down -H "$J" -d '{"target":"fx","enabled":true,"error_rate":1,"error_status":503}'
+```
+Account-service caches rates in Redis for 60 s, so the outage shows up to a minute after
+enabling. Then the rates endpoint returns 502 ("Kurs valas sedang tidak tersedia") and the
+portfolio total drops USD/JPY products instead of failing the page. FX has no dedicated
+monitor and no `partner.request` span, so the "Rail … is failing" monitor doesn't see it.
+
+| # | Moment | Datadog | Talking point |
+|---|--------|---------|---------------|
+| 1 | Customer's total balance looks wrong | RUM / Session Replay on the account page; log `FX unavailable, total balance shown without foreign-currency products` | Graceful degradation, still visible |
+| 2 | Find it | APM `nusabank-account` → outbound calls to `fx-gateway` failing; Error Tracking on the rates endpoint | The cache hid it for a minute |
+
+<a id="credential-stuffing"></a>
+### `credential-stuffing` — slow attack on the login (EP3)
+```bash
+kubectl apply -f tools/scenarios/credential-stuffing.yaml    # start
+kubectl delete -f tools/scenarios/credential-stuffing.yaml   # stop
+```
+A k6 job sends 2 logins/s with non-existent usernames for 12 min (hard stop at 20 min). No
+real demo account is locked. Shows up on `nusabank-auth` as failed logins from one client
+signature — App & API Protection / Cloud SIEM rather than this game day.
+
+---
 
 ## Not ready yet
 - On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
