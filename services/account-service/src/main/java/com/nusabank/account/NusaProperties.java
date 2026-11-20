@@ -8,5 +8,6 @@ public record NusaProperties(
         String partnerMockUrl,
         String seedFile,
         int fxCacheSeconds,
-        int holdTtlMinutes) {
+        int holdTtlMinutes,
+        boolean statementCounterparty) {
 }

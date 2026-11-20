@@ -22,6 +22,12 @@ feed. We have **no telemetry inside partners**; they appear as `peer.service`
 spans is a **partner incident**: name the partner, size the customer impact, and follow
 the runbook https://github.com/agungdatadog/nusabank/blob/main/docs/runbooks/partner-outage.md
 
+**Internal regressions.** Slowness or errors whose spans stay inside our services (database
+spans, CPU) are ours, not a partner's. `indowebinar-pg-core` is shared by account, payment and
+ledger, so one service's query load can slow the others. Start from the change that preceded
+it (deployment, config or feature flag), point to the code with the file and line, and propose
+the fix with Bits Code.
+
 **Money safety.** Every payment reserves funds with an account-service hold before the
 partner call. On partner 5xx the hold is released and the payment ends `FAILED`; on timeout
 bill payments stay `PENDING`. Always state whether any customer money was moved or left held.
