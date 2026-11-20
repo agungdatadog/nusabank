@@ -95,6 +95,8 @@ Never add `scenario`, `mock` or `test` wording to anything a caller logs or tags
   Nothing configured only through the UI — it must survive a rebuild.
   Exception: Bits Investigation's Bits.md has no API yet — its source of truth is
   `docs/bits/bits.md`; paste it into Bits Investigation → Settings → Bits.md after editing.
+  Same for the per-monitor **Investigate with Bits** toggle (no API or Terraform support):
+  the monitors that need it are listed in `docs/episodes/ep2-gameday.md` → Before going live.
 - Logs are JSON with `dd.trace_id` / `dd.span_id` correlation.
 
 ### GCP

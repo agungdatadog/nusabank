@@ -15,6 +15,10 @@ with 503. One partner breaks; every other biller stays healthy. Expires on its o
 - [ ] Fresh **incognito** window logged in as a demo customer (clean RUM session, latest frontend).
 - [ ] Review Bits Investigation memories from rehearsals; remove stale ones.
 - [ ] Bits.md pasted from `docs/bits/bits.md`.
+- [ ] **Investigate with Bits** enabled on the drill monitors (UI only: monitor → Edit →
+      Configure notifications & automations, or Bits Investigation → Monitors → Auto-Investigate).
+      Needed on "Biller … is failing" (GoPay drill) and "Rail … is failing" (BI FAST, Part 2);
+      a monitor re-created by Terraform loses it.
 - [ ] Start the drill ~15 min before the segment so the monitor has alerted:
   ```bash
   kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &
