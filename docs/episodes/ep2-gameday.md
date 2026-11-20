@@ -70,7 +70,55 @@ End: `curl -s -X DELETE localhost:8080/__scenarios`, then make sure `/ops` → R
 **Aktif**. A disabled rail re-enables itself after 2 hours regardless, so a forgotten switch
 cannot poison the baseline for long.
 
+## All scenarios
+
+Parts 1 and 2 use two of these; the rest are spares for rehearsals, Q&A or a different story.
+Source of truth: the `catalog` in `services/partner-mock/scenarios.go` (API in
+`catalog/openapi.yaml` → `/__scenarios`). All are OFF by default and switch themselves off
+after 3 hours unless the body sets `expires_at`.
+
+### Partner failures (partner-mock)
+| ID | Partner | Caller in APM | What breaks | Demo angle |
+|----|---------|---------------|-------------|------------|
+| `ppob-gopay-errors` | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1.** One biller breaks, the rest stay healthy |
+| `ppob-pln-slow` | PPOB → PLN | `nusabank-biller` | +5 s latency | One biller slow, no errors — latency-only investigation |
+| `ppob-aggregator-down` | Whole PPOB aggregator | `nusabank-biller` | 100% of calls 503 | Every biller fails at once: wide blast radius |
+| `bifast-errors` | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2.** Workflow switches the rail off, a person switches it back on |
+| `bifast-timeout` | BI FAST | `nusabank-payment` | +8 s latency | Slow transfers and timeouts |
+| `skn-settlement-delay` | SKN | `nusabank-payment` | Settlement window +30 min | Late settlement, no errors at all |
+| `credit-bureau-slow` | Credit bureau | `nusabank-loan` | +12 s latency | Loan application hangs |
+| `fx-feed-down` | FX rate feed | `nusabank-account` | 100% of calls 503 | Multi-currency (USD/JPY) rates unavailable |
+
+A PUT **replaces** the scenario, so send the full body — `target` is required and fields you
+leave out are cleared. With port-forward running (`kubectl port-forward -n nusabank svc/partner-mock 8080:8080 &`):
+```bash
+S=localhost:8080/__scenarios; J='Content-Type: application/json'
+curl -s -X PUT $S/ppob-gopay-errors    -H "$J" -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
+curl -s -X PUT $S/ppob-pln-slow        -H "$J" -d '{"target":"ppob","biller_code":"pln","enabled":true,"latency_ms":5000}'
+curl -s -X PUT $S/ppob-aggregator-down -H "$J" -d '{"target":"ppob","enabled":true,"error_rate":1,"error_status":503}'
+curl -s -X PUT $S/bifast-errors        -H "$J" -d '{"target":"bifast","enabled":true,"error_rate":0.3,"error_status":503}'
+curl -s -X PUT $S/bifast-timeout       -H "$J" -d '{"target":"bifast","enabled":true,"latency_ms":8000}'
+curl -s -X PUT $S/skn-settlement-delay -H "$J" -d '{"target":"skn","enabled":true,"skn_window_delay_minutes":30}'
+curl -s -X PUT $S/credit-bureau-slow   -H "$J" -d '{"target":"credit-bureau","enabled":true,"latency_ms":12000}'
+curl -s -X PUT $S/fx-feed-down         -H "$J" -d '{"target":"fx","enabled":true,"error_rate":1,"error_status":503}'
+
+curl -s $S                 # what is on, and when it expires
+curl -s -X DELETE $S       # everything off — healthy baseline
+```
+Tune any of them in the body: `latency_ms`, `error_rate` (0–1), `error_status` (500, 503 or
+504 — 504 shows as `PARTNER_TIMEOUT`), `expires_at` (RFC 3339). Scenarios on the same partner
+stack: the highest latency wins, then each error rate is rolled.
+
+### Attack traffic (`tools/scenarios/`)
+| Scenario | What it does | Run / stop |
+|----------|--------------|------------|
+| `credential-stuffing` | k6 job, 2 logins/s against `/api/auth/login` with non-existent usernames for 12 min (hard stop 20 min). No real account is locked | `kubectl apply -f tools/scenarios/credential-stuffing.yaml` / `kubectl delete -f …` |
+
+Better suited to EP3 (PROTECT) than to this game day.
+
 ## Not ready yet
 - On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
   monitor's only handle is the workflow).
 - Incident Management settings; the workflows record change events but don't declare an incident.
+- Scenarios the README promises but nothing toggles yet: the e-Statement N+1 noisy neighbour
+  on `pg-core` (DBM story) and Kafka consumer lag behind a stale balance (DSM story).
