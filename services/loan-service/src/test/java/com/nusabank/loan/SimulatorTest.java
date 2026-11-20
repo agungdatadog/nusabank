@@ -33,6 +33,25 @@ class SimulatorTest {
     }
 
     @Test
+    void auditScheduleMatchesStandardToTheRupiah() {
+        for (var c : new Object[][] {{KPR, "675000000", 180}, {KPR, "1200000000", 240}, {KTA, "60000000", 24}}) {
+            var p = (Simulator.Product) c[0];
+            var principal = new BigDecimal((String) c[1]);
+            int tenor = (Integer) c[2];
+            var standard = Simulator.simulate(p, principal, tenor);
+            var audit = Simulator.simulate(p, principal, tenor, Simulator.Mode.AUDIT);
+            assertEquals(standard.firstInstallment(), audit.firstInstallment());
+            assertEquals(standard.totalInterest(), audit.totalInterest());
+            for (int i = 0; i < tenor; i++) {
+                var s = standard.schedule().get(i);
+                var a = audit.schedule().get(i);
+                assertTrue(s.remaining().subtract(a.remaining()).abs().compareTo(BigDecimal.ONE) <= 0,
+                        p.code() + " month " + (i + 1) + ": " + s.remaining() + " vs " + a.remaining());
+            }
+        }
+    }
+
+    @Test
     void decisionPolicy() {
         assertNull(Simulator.decide("A", new BigDecimal("0.45")));
         assertEquals("DSR melebihi 50% dari penghasilan", Simulator.decide("B", new BigDecimal("0.55")));
