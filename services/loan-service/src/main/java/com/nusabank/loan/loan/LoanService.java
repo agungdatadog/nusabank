@@ -1,5 +1,6 @@
 package com.nusabank.loan.loan;
 
+import com.nusabank.loan.LoanProperties;
 import com.nusabank.loan.tracing.Spans;
 import com.nusabank.loan.web.ApiException;
 import com.nusabank.loan.web.Money;
@@ -34,9 +35,11 @@ public class LoanService {
     private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper mapper;
     private final StatsDClient statsd;
+    private final Simulator.Mode scheduleMode;
 
     public LoanService(LoanRepository repo, Downstreams downstreams, KafkaTemplate<String, String> kafka,
-                       ObjectMapper mapper, StatsDClient statsd) {
+                       ObjectMapper mapper, StatsDClient statsd, LoanProperties props) {
+        this.scheduleMode = props.scheduleMode() == null ? Simulator.Mode.STANDARD : props.scheduleMode();
         this.repo = repo;
         this.downstreams = downstreams;
         this.kafka = kafka;
@@ -80,7 +83,7 @@ public class LoanService {
 
     public Simulator.Result simulate(Terms t) {
         statsd.incrementCounter("nusabank.loan.simulation.count", "product:" + t.product().code().toLowerCase());
-        return Simulator.simulate(t.product().terms(), t.principal(), t.tenor());
+        return Simulator.simulate(t.product().terms(), t.principal(), t.tenor(), scheduleMode);
     }
 
     @Transactional
@@ -94,7 +97,7 @@ public class LoanService {
         if (acct == null || !cif.equals(acct.cif()) || !"IDR".equals(acct.currency()) || !"ACTIVE".equals(acct.status())) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "ACCOUNT_NOT_ELIGIBLE", "Rekening pencairan harus rekening IDR aktif milik Anda");
         }
-        var installment = Simulator.simulate(t.product().terms(), t.principal(), t.tenor()).firstInstallment();
+        var installment = Simulator.simulate(t.product().terms(), t.principal(), t.tenor(), scheduleMode).firstInstallment();
         var app = repo.insert(cif, t.product().code(), nik, t.assetPrice(), t.downPayment(), t.principal(), t.tenor(),
                 installment, income.value(), employment, collateral, disbursementAccount);
         countStage(app, "draft");

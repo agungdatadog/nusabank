@@ -16,6 +16,11 @@ public final class Simulator {
     private Simulator() {}
 
     private static final MathContext MC = new MathContext(20, RoundingMode.HALF_EVEN);
+    // Audit schedules carry far more digits so no row inherits rounding drift from the one before.
+    private static final MathContext AUDIT_MC = new MathContext(400, RoundingMode.HALF_EVEN);
+
+    /** STANDARD walks the schedule once; AUDIT recomputes every row's balance from the original principal. */
+    public enum Mode { STANDARD, AUDIT }
     private static final BigDecimal TWELVE_HUNDRED = BigDecimal.valueOf(1200);
 
     public record Product(String code, String method, BigDecimal fixedRate, Integer fixedPeriodMonths,
@@ -33,14 +38,23 @@ public final class Simulator {
 
     /** Standard annuity payment: P * r / (1 - (1 + r)^-n), r = monthly rate. */
     static BigDecimal annuity(BigDecimal principal, BigDecimal annualRate, int months) {
+        return annuity(principal, annualRate, months, MC);
+    }
+
+    private static BigDecimal annuity(BigDecimal principal, BigDecimal annualRate, int months, MathContext mc) {
         if (months <= 0) return BigDecimal.ZERO;
-        BigDecimal r = annualRate.divide(TWELVE_HUNDRED, MC);
-        if (r.signum() == 0) return principal.divide(BigDecimal.valueOf(months), MC);
-        BigDecimal factor = BigDecimal.ONE.add(r).pow(-months, MC);
-        return principal.multiply(r, MC).divide(BigDecimal.ONE.subtract(factor, MC), MC);
+        BigDecimal r = annualRate.divide(TWELVE_HUNDRED, mc);
+        if (r.signum() == 0) return principal.divide(BigDecimal.valueOf(months), mc);
+        BigDecimal factor = BigDecimal.ONE.add(r).pow(-months, mc);
+        return principal.multiply(r, mc).divide(BigDecimal.ONE.subtract(factor, mc), mc);
     }
 
     public static Result simulate(Product p, BigDecimal principal, int tenor) {
+        return simulate(p, principal, tenor, Mode.STANDARD);
+    }
+
+    public static Result simulate(Product p, BigDecimal principal, int tenor, Mode mode) {
+        if (mode == Mode.AUDIT) return auditSchedule(p, principal, tenor);
         return "ANNUITY".equals(p.method()) ? annuitySchedule(p, principal, tenor) : flatSchedule(p, principal, tenor);
     }
 
@@ -80,6 +94,45 @@ public final class Simulator {
         }
         BigDecimal totalInterest = rupiah(monthlyInterest.multiply(BigDecimal.valueOf(tenor)));
         return new Result(principal, tenor, installment, null, totalInterest, rupiah(principal.add(totalInterest)), rows);
+    }
+
+    /**
+     * Same schedule, but each row is derived independently: the balance after month m is replayed
+     * from the original principal at audit precision, so any single row can be checked on its own.
+     * Quadratic in the tenor — a 20-year KPR replays ~29,000 months at 400 digits.
+     */
+    private static Result auditSchedule(Product p, BigDecimal principal, int tenor) {
+        Result standard = "ANNUITY".equals(p.method()) ? annuitySchedule(p, principal, tenor) : flatSchedule(p, principal, tenor);
+        List<Row> rows = new ArrayList<>(tenor);
+        BigDecimal before = principal;
+        for (Row row : standard.schedule()) {
+            BigDecimal after = row.month() == tenor ? BigDecimal.ZERO : balanceAfter(p, principal, tenor, row.month());
+            BigDecimal principalPart = before.subtract(after, AUDIT_MC);
+            rows.add(new Row(row.month(), row.installment(), rupiah(principalPart), row.interest(), rupiah(after)));
+            before = after;
+        }
+        return new Result(principal, tenor, standard.firstInstallment(), standard.floatingInstallment(),
+                standard.totalInterest(), standard.totalPayment(), rows);
+    }
+
+    /** Outstanding balance after `month` installments, replayed from month 1. */
+    static BigDecimal balanceAfter(Product p, BigDecimal principal, int tenor, int month) {
+        if (!"ANNUITY".equals(p.method())) {
+            BigDecimal monthlyPrincipal = principal.divide(BigDecimal.valueOf(tenor), AUDIT_MC);
+            BigDecimal remaining = principal;
+            for (int m = 1; m <= month; m++) remaining = remaining.subtract(monthlyPrincipal, AUDIT_MC);
+            return remaining;
+        }
+        int fixedMonths = Math.min(p.fixedPeriodMonths() == null ? tenor : p.fixedPeriodMonths(), tenor);
+        BigDecimal remaining = principal;
+        BigDecimal payment = annuity(principal, p.fixedRate(), tenor, AUDIT_MC);
+        for (int m = 1; m <= month; m++) {
+            BigDecimal rate = m <= fixedMonths ? p.fixedRate() : p.floatingRate();
+            if (m == fixedMonths + 1) payment = annuity(remaining, rate, tenor - fixedMonths, AUDIT_MC);
+            BigDecimal interest = remaining.multiply(rate.divide(TWELVE_HUNDRED, AUDIT_MC), AUDIT_MC);
+            remaining = remaining.subtract(payment.subtract(interest, AUDIT_MC), AUDIT_MC).max(BigDecimal.ZERO);
+        }
+        return remaining;
     }
 
     /** Debt service ratio: (new installment + existing obligations) / monthly income. */

@@ -39,3 +39,4 @@ nusabank:
   jwt-secret: ${JWT_SECRET}
   partner-mock-url: ${PARTNER_MOCK_URL:http://partner-mock.nusabank.svc.cluster.local:8080}
   account-service-url: ${ACCOUNT_SERVICE_URL:http://account-service.nusabank.svc.cluster.local:8080}
+  schedule-mode: ${LOAN_SCHEDULE_MODE:STANDARD}
