@@ -8,7 +8,7 @@ a bug in our own code, which Bits traces to the line and Bits Code fixes.
 
 ## Scenarios
 
-The live show runs **Parts 1–3**; the rest are spares for rehearsals, Q&A or a
+The live show runs **Parts 1–3**, plus **Part 4** (Continuous Profiler) if time allows; the rest are spares for rehearsals, Q&A or a
 different story. Click an ID for its flow. Source of truth: the `catalog` in
 `services/partner-mock/scenarios.go` (API in `catalog/openapi.yaml` → `/__scenarios`).
 All are OFF by default and switch themselves off after 3 hours unless the body sets `expires_at`.
@@ -18,6 +18,7 @@ All are OFF by default and switch themselves off after 3 hours unless the body s
 | [`ppob-gopay-errors`](#ppob-gopay-errors) | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1** — one biller breaks, the rest stay healthy |
 | [`bifast-errors`](#bifast-errors) | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2** — workflow switches the rail off, a person switches it back on |
 | [`estatement-counterparty`](#estatement-counterparty) | — (our code) | `nusabank-account` → `nusabank-payment` | N+1 query on shared `pg-core`: e-Statement and transfers slow | **Part 3** — Bits finds the bug, Bits Code proposes the fix |
+| [`loan-audit-schedule`](#loan-audit-schedule) | — (our code) | `nusabank-loan` | Amortisation schedule recomputed per row at 1,000 digits: KPR simulation takes seconds of CPU | **Part 4** — the Profiler points at the method |
 | [`ppob-pln-slow`](#ppob-pln-slow) | PPOB → PLN | `nusabank-biller` | +5 s latency | Spare — one biller slow, no errors |
 | [`ppob-aggregator-down`](#ppob-aggregator-down) | Whole PPOB aggregator | `nusabank-biller` | 100% of calls 503 | Spare — every biller at once, wide blast radius |
 | [`bifast-timeout`](#bifast-timeout) | BI FAST | `nusabank-payment` | +8 s latency | Spare — slow transfers that still succeed |
@@ -47,7 +48,7 @@ log in to the demo org first.
 ## Before going live
 - [ ] Jakarta daytime, so load-generator traffic is high (night is ~8% of peak).
 - [ ] Baseline green: all `[Nusa Bank]` monitors OK, no scenario enabled (`curl -s $S`), and
-      account-service's `STATEMENT_COUNTERPARTY` is `false`.
+      account-service's `STATEMENT_COUNTERPARTY` is `false`, loan-service has no `LOAN_SCHEDULE_MODE`.
 - [ ] Datadog GitHub integration can reach `agungdatadog/nusabank` (Bits Code opens its PR there).
 - [ ] Fresh **incognito** window logged in as a demo customer (clean RUM session, latest frontend).
 - [ ] Review Bits Investigation memories from rehearsals; remove stale ones.
@@ -55,7 +56,8 @@ log in to the demo org first.
 - [ ] **Investigate with Bits** enabled on the drill monitors (UI only: monitor → Edit →
       Configure notifications & automations, or Bits Investigation → Monitors → Auto-Investigate).
       Needed on "Biller … is failing" (Part 1), "Rail … is failing" (Part 2), and
-      "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3);
+      "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3), and
+      "Slow loan simulation (p95)" (Part 4, if Bits is part of it);
       a monitor re-created by Terraform loses it.
 
 ---
@@ -98,8 +100,8 @@ Start ~10 min before the segment (after Part 1, or on its own):
 curl -s -X PUT $S/bifast-errors -H "$J" \
   -d '{"target":"bifast","enabled":true,"error_rate":0.3,"error_status":503}'
 ```
-The monitor alerts within ~2 minutes and the workflow runs immediately (check
-Workflow Automation → the workflow → Runs). Keep a second browser on `/ops` → **Rail**.
+The monitor alerts ~6 minutes after the scenario starts and the workflow runs within seconds
+(check Workflow Automation → the workflow → Runs). Recovery takes ~10 minutes after it ends. Keep a second browser on `/ops` → **Rail**.
 
 | # | Moment | Do & click | Datadog / app | Talking point | Link |
 |---|--------|------------|---------------|---------------|------|
@@ -149,6 +151,42 @@ Monitors that turn red: **Slow e-Statement download (p95)** (> 0.6 s) and **Slow
 or leave it open to show on stage. End: `tools/scenarios/estatement-counterparty.sh off`, then
 confirm `kubectl -n nusabank get deploy account-service -o jsonpath='{..env[?(@.name=="STATEMENT_COUNTERPARTY")].value}'`
 prints `false`.
+
+<a id="loan-audit-schedule"></a>
+## Part 4 — `loan-audit-schedule`: a release makes our own code slow (Continuous Profiler)
+
+Our code again, but no database this time: pure CPU. `tools/scenarios/loan-audit-schedule.sh on`
+rolls out loan-service with `LOAN_SCHEDULE_MODE=AUDIT`, which recomputes every row of the
+amortisation schedule from the original principal at 1,000-digit precision. The numbers stay
+identical to the rupiah; the cost is quadratic in the tenor, so KPR (and to a lesser extent KKB)
+simulations become slow while short KTA ones barely change.
+
+Rehearsed 2026-11-20, daytime traffic: KPR simulations 0.01 s → 5–15 s, KTA/KKB 0.01 s → 0.02–0.1 s.
+In the CPU profile the top stack, ~33% of loan-service's CPU, was
+`LoanService.simulate` → `Simulator.auditSchedule` → `Simulator.balanceAfter` → `BigDecimal.divide`,
+and `POST /api/loans/simulations` was the top endpoint. Allow ~10 min after switching on: the
+first minutes are dominated by JIT compilation from the rollout.
+
+Start ~15 min before the segment, so the Profiler has a clear before and after. Each switch is a
+~1 min rolling restart of loan-service, which Datadog records as a deployment:
+```bash
+bash tools/scenarios/loan-audit-schedule.sh on
+```
+Monitor that turns red: **Slow loan simulation (p95)** (max over 10 min > 1 s; a single slow KPR is
+enough, since most simulations are short KTA schedules).
+
+| # | Moment | Do & click | Datadog | Talking point | Link |
+|---|--------|------------|---------|---------------|------|
+| 1 | "The KPR simulator hangs" | Customer browser → `/pinjaman` → simulate a KPR, 20-year tenor → wait for the result | Monitor "Slow loan simulation (p95)"; RUM: long `POST /api/loans/simulations` | Customers notice before anyone pages us | [/pinjaman](https://136-69-32-40.sslip.io/pinjaman) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20loan%20simulation) |
+| 2 | Not a partner, not the DB | Open Traces → sort by duration → open the slowest simulation → show one long `servlet.request` span with no slow child | APM `nusabank-loan` `POST /api/loans/simulations`: all the time is in our process | This time it *is* our code | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-loan%20resource_name%3Apost_%2Fapi%2Floans%2Fsimulations%20env%3Ademo) |
+| 3 | Which method? | In the trace, open the **Code Hotspots** tab → follow the widest frame | `Simulator.auditSchedule` → `balanceAfter` → `BigDecimal.divide` | From a slow request to the method in two clicks | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-loan%20resource_name%3Apost_%2Fapi%2Floans%2Fsimulations%20env%3Ademo) |
+| 4 | How much does it cost us? | Open Profiler → `service:nusabank-loan` → CPU flame graph with **My code** on; then **Compare** the last 15 min with the hour before | `Simulator.balanceAfter` the top stack, ~a third of the service's CPU; the comparison shows it as new | Not one slow request: a third of the service's CPU | [Profiler](https://app.datadoghq.com/profiling/explorer?query=service%3Anusabank-loan%20env%3Ademo&viz=flame_graph&my_code=enabled) |
+| 5 | What changed? | Open Events → filter `service:nusabank-loan` → click the deployment just before the slowdown | Change Tracking on `nusabank-loan`: the rollout that set `LOAN_SCHEDULE_MODE` | Every regression starts with a change | [Change events](https://app.datadoghq.com/event/explorer?query=service%3Anusabank-loan%20env%3Ademo) |
+| 6 | Recover | Run `bash tools/scenarios/loan-audit-schedule.sh off` → back on the Profiler timeline, CPU drops; monitor green ~10 min later | p95 back to ~10 ms; `Simulator.balanceAfter` gone from the flame graph | Roll back with evidence, not guesswork | [Monitor](https://app.datadoghq.com/monitors/manage?q=Slow%20loan%20simulation) |
+
+End: `bash tools/scenarios/loan-audit-schedule.sh off` (removes the env var and waits for the rollout),
+then confirm `kubectl -n nusabank get deploy loan-service -o jsonpath='{..env[?(@.name=="LOAN_SCHEDULE_MODE")].value}'`
+prints nothing.
 
 ---
 
@@ -255,8 +293,6 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 |---|--------|------------|---------|---------------|------|
 | 1 | Failed logins pile up | Open login traces → filter errors → **Group by** `@http.useragent` → one client dominates | `nusabank-auth` `POST /api/auth/login` errors from one user agent | Many usernames, one attacker | [Login traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-auth%20resource_name%3Apost_%2Fapi%2Fauth%2Flogin%20env%3Ademo) |
 | 2 | Did Datadog flag it? | Open Security signals → filter `env:demo` → open the newest signal | Credential-stuffing / brute-force signal on the login | Detection without writing a rule | [Security signals](https://app.datadoghq.com/security?query=env%3Ademo) |
-
----
 
 ## Not ready yet
 - On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST

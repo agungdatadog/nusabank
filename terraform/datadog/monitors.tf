@@ -119,6 +119,21 @@ resource "datadog_monitor" "latency_estatement" {
   tags                = concat(local.monitor_tags, ["service:nusabank-account"])
 }
 
+resource "datadog_monitor" "latency_loan_simulation" {
+  name = "[Nusa Bank] Slow loan simulation (p95)"
+  type = "query alert"
+  # max, not avg: most simulations are short KTA schedules, so a slow KPR is only a few points
+  # per window and an average dilutes it below any useful threshold.
+  query   = "max(last_10m):p95:trace.servlet.request{service:nusabank-loan,resource_name:post_/api/loans/simulations,env:demo} > 1"
+  message = "Loan simulation p95 reached {{value}}s (baseline ~0.01s). Simulation makes no partner or database call worth the time, so look inside loan-service: trace → Code Hotspots, or Continuous Profiler on nusabank-loan."
+  monitor_thresholds {
+    critical = 1
+    warning  = 0.3
+  }
+  require_full_window = false
+  tags                = concat(local.monitor_tags, ["service:nusabank-loan"])
+}
+
 resource "datadog_monitor" "latency_login" {
   name    = "[Nusa Bank] Slow login (p95)"
   type    = "query alert"
@@ -258,6 +273,7 @@ output "monitor_ids" {
     api_errors_pay   = datadog_monitor.api_errors_payment.id
     latency_transfer = datadog_monitor.latency_transfer.id
     latency_bill     = datadog_monitor.latency_bill_payment.id
+    latency_loan     = datadog_monitor.latency_loan_simulation.id
     latency_login    = datadog_monitor.latency_login.id
     ppob_latency     = datadog_monitor.partner_ppob_latency.id
     ppob_errors      = datadog_monitor.partner_ppob_errors.id
