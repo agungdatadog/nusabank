@@ -28,11 +28,36 @@ resource "datadog_action_connection" "nusabank_ops" {
   }
 }
 
+# Datadog actions need a Datadog connection, which has no Terraform resource; post change
+# events to the Events intake over HTTP instead, with the API key the provider already reads.
+resource "datadog_action_connection" "datadog_events" {
+  name = "Nusa Bank Datadog Events intake"
+  tags = ["team:nusabank", "env:demo"]
+
+  http {
+    base_url = "https://event-management-intake.datadoghq.com"
+    token_auth {
+      token {
+        name  = "apiKey"
+        type  = "SECRET"
+        value = data.google_secret_manager_secret_version.dd_api_key.secret_data
+      }
+      header {
+        name  = "DD-API-KEY"
+        value = "{{ apiKey }}"
+      }
+    }
+  }
+}
+
 locals {
   workflow_tags = ["team:nusabank", "env:demo", "service:nusabank-payment", "managed-by:terraform"]
   ops_connection = {
-    env         = "default"
-    connections = [{ connectionId = datadog_action_connection.nusabank_ops.id, label = "INTEGRATION_NUSABANK_OPS" }]
+    env = "default"
+    connections = [
+      { connectionId = datadog_action_connection.nusabank_ops.id, label = "INTEGRATION_NUSABANK_OPS" },
+      { connectionId = datadog_action_connection.datadog_events.id, label = "INTEGRATION_DATADOG_EVENTS" },
+    ]
   }
 
   # A change event on nusabank-payment: shows in Change Tracking on the service page and
@@ -98,16 +123,20 @@ resource "datadog_workflow_automation" "bifast_auto_disable" {
         outboundEdges = [{ branchName = "main", nextStepName = "Record_change" }]
       },
       {
-        name     = "Record_change"
-        actionId = "com.datadoghq.dd.events.createEventV2"
+        name            = "Record_change"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_DATADOG_EVENTS"
         parameters = [
-          { name = "category", value = local.rail_change_event.disabled.category },
-          { name = "title", value = local.rail_change_event.disabled.title },
-          { name = "tags", value = local.rail_change_event.disabled.tags },
-          { name = "message", value = "Datadog Workflow menonaktifkan BI FAST untuk transfer baru karena monitor {{ Source.monitor.name }} alert. Nasabah diarahkan ke SKN. Aktif otomatis kembali {{ Steps.Disable_BI_FAST.body.auto_enable_at }} jika tidak diaktifkan manual dari /ops." },
-          { name = "attributes", value = merge(local.rail_change_event.disabled.attributes, {
-            author = { name = "Datadog Workflow", type = "automation" }
-          }) },
+          { name = "verb", value = "POST" },
+          { name = "url", value = "https://event-management-intake.datadoghq.com/api/v2/events" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = jsonencode({ data = { type = "event", attributes = merge(local.rail_change_event.disabled, {
+            message = "Datadog Workflow menonaktifkan BI FAST untuk transfer baru karena monitor {{ Source.monitor.name }} alert. Nasabah diarahkan ke SKN. Aktif otomatis kembali {{ Steps.Disable_BI_FAST.body.auto_enable_at }} jika tidak diaktifkan manual dari /ops."
+            attributes = merge(local.rail_change_event.disabled.attributes, {
+              author = { name = "Datadog Workflow", type = "automation" }
+            })
+          }) } }) },
+          { name = "responseParsing", value = "json" },
         ]
       },
     ]
@@ -141,16 +170,20 @@ resource "datadog_workflow_automation" "bifast_restore" {
         outboundEdges = [{ branchName = "main", nextStepName = "Record_change" }]
       },
       {
-        name     = "Record_change"
-        actionId = "com.datadoghq.dd.events.createEventV2"
+        name            = "Record_change"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_DATADOG_EVENTS"
         parameters = [
-          { name = "category", value = local.rail_change_event.enabled.category },
-          { name = "title", value = local.rail_change_event.enabled.title },
-          { name = "tags", value = local.rail_change_event.enabled.tags },
-          { name = "message", value = "{{ Source.initiator.name }} mengaktifkan kembali BI FAST setelah partner pulih." },
-          { name = "attributes", value = merge(local.rail_change_event.enabled.attributes, {
-            author = { name = "{{ Source.initiator.name }}", type = "user" }
-          }) },
+          { name = "verb", value = "POST" },
+          { name = "url", value = "https://event-management-intake.datadoghq.com/api/v2/events" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = jsonencode({ data = { type = "event", attributes = merge(local.rail_change_event.enabled, {
+            message = "{{ Source.initiator.name }} mengaktifkan kembali BI FAST setelah partner pulih."
+            attributes = merge(local.rail_change_event.enabled.attributes, {
+              author = { name = "{{ Source.initiator.name }}", type = "user" }
+            })
+          }) } }) },
+          { name = "responseParsing", value = "json" },
         ]
       },
     ]
