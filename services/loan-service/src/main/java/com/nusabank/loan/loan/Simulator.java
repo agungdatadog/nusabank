@@ -17,7 +17,7 @@ public final class Simulator {
 
     private static final MathContext MC = new MathContext(20, RoundingMode.HALF_EVEN);
     // Audit schedules carry far more digits so no row inherits rounding drift from the one before.
-    private static final MathContext AUDIT_MC = new MathContext(400, RoundingMode.HALF_EVEN);
+    private static final MathContext AUDIT_MC = new MathContext(1000, RoundingMode.HALF_EVEN);
 
     /** STANDARD walks the schedule once; AUDIT recomputes every row's balance from the original principal. */
     public enum Mode { STANDARD, AUDIT }
@@ -99,7 +99,7 @@ public final class Simulator {
     /**
      * Same schedule, but each row is derived independently: the balance after month m is replayed
      * from the original principal at audit precision, so any single row can be checked on its own.
-     * Quadratic in the tenor — a 20-year KPR replays ~29,000 months at 400 digits.
+     * Quadratic in the tenor — a 20-year KPR replays ~29,000 months at 1,000 digits.
      */
     private static Result auditSchedule(Product p, BigDecimal principal, int tenor) {
         Result standard = "ANNUITY".equals(p.method()) ? annuitySchedule(p, principal, tenor) : flatSchedule(p, principal, tenor);
