@@ -64,6 +64,8 @@ resource "datadog_software_catalog" "service" {
 # telemetry, here is the runbook" when a peer.service fails. Names match the callers' peer.service.
 locals {
   partner_runbook = "https://github.com/agungdatadog/nusabank/blob/main/docs/runbooks/partner-outage.md"
+  # Notebook from docs/runbooks/notebooks/gopay-failing.json (tools/notebooks/apply.py); no Terraform resource for notebooks.
+  gopay_runbook = "https://app.datadoghq.com/notebook/16482580"
   external_partners = merge(
     { for b, title in {
       gopay     = "GoPay", ovo = "OVO", dana = "DANA", shopeepay = "ShopeePay", linkaja = "LinkAja",
