@@ -1,0 +1,108 @@
+# Demo scenario (OFF by default): a burst of ordinary customers topping up GoPay, so Part 1's
+# "is it widespread?" shows many customers (CIFs) hitting the GoPay failure, not just the presenter.
+# Same seeded customers, password and OTP as the load generator; no extra tags or headers.
+# Start it together with ppob-gopay-errors; on its own it is just healthy GoPay traffic.
+# Run:   kubectl apply -f tools/scenarios/gopay-rush.yaml
+# Stop:  kubectl delete -f tools/scenarios/gopay-rush.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scenario-gopay-rush
+  namespace: nusabank
+data:
+  script.js: |
+    import http from "k6/http";
+    import { sleep } from "k6";
+
+    const BASE = __ENV.BASE_URL;
+    const json = { "Content-Type": "application/json" };
+    // customers.json ships in the load-generator image.
+    const customers = JSON.parse(open("/scripts/customers.json")).customers
+      .map((c) => ({ username: c.username, phone: c.phone.replace(/^\+62/, "0"),
+        savings: c.accounts.filter((a) => (a.product_type === "SAVINGS" || a.product_type === "CURRENT") && a.currency === "IDR").map((a) => a.account_number) }))
+      .filter((c) => c.savings.length);
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    const think = (min, max) => sleep(min + Math.random() * (max - min));
+    const uuid = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+      const r = (Math.random() * 16) | 0;
+      return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+
+    export const options = {
+      scenarios: {
+        rush: { executor: "constant-arrival-rate", rate: Number(__ENV.RATE_PER_MIN || 60), timeUnit: "1m", duration: __ENV.DURATION || "30m", preAllocatedVUs: 10, maxVUs: 40 },
+      },
+    };
+
+    function login(c) {
+      const res = http.post(`${BASE}/api/auth/login`, JSON.stringify({ username: c.username, password: __ENV.DEMO_CUSTOMER_PASSWORD }), { headers: json });
+      if (res.status !== 200) return null;
+      const body = res.json();
+      if (!body.mfa_required) return body.tokens.access_token;
+      think(2, 6);
+      const v = http.post(`${BASE}/api/auth/mfa/verify`, JSON.stringify({ mfa_token: body.mfa_token, otp: __ENV.DEMO_MFA_OTP }), { headers: json });
+      return v.status === 200 ? v.json().access_token : null;
+    }
+
+    export default function () {
+      const c = pick(customers);
+      const token = login(c);
+      if (!token) return;
+      const h = { ...json, Authorization: `Bearer ${token}` };
+      http.get(`${BASE}/api/billers/categories`, { headers: h });
+      think(2, 5);
+      const amount = pick(["50000", "100000", "100000", "150000", "200000"]);
+      const inq = http.post(`${BASE}/api/billers/inquiry`, JSON.stringify({ biller_code: "gopay", customer_number: c.phone, amount: { amount, currency: "IDR" } }), { headers: h });
+      if (inq.status !== 200) return;
+      think(2, 5);
+      const pay = http.post(`${BASE}/api/billers/payments`, JSON.stringify({ inquiry_id: inq.json().inquiry_id, source_account_number: pick(c.savings) }), { headers: { ...h, "Idempotency-Key": uuid() } });
+      if (pay.status >= 500 && Math.random() < 0.5) {
+        // Some customers try once more, like the "silakan coba lagi" message asks.
+        think(3, 8);
+        const again = http.post(`${BASE}/api/billers/inquiry`, JSON.stringify({ biller_code: "gopay", customer_number: c.phone, amount: { amount, currency: "IDR" } }), { headers: h });
+        if (again.status === 200) http.post(`${BASE}/api/billers/payments`, JSON.stringify({ inquiry_id: again.json().inquiry_id, source_account_number: pick(c.savings) }), { headers: { ...h, "Idempotency-Key": uuid() } });
+      }
+      if (Math.random() < 0.6) http.post(`${BASE}/api/auth/logout`, null, { headers: h });
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: scenario-gopay-rush
+  namespace: nusabank
+  labels:
+    app: scenario-gopay-rush
+    app.kubernetes.io/name: scenario-gopay-rush
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 2400 # hard stop even if nobody deletes it
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: scenario-gopay-rush
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          # Load-generator image for the seeded customers.json; the script comes from the ConfigMap.
+          image: asia-southeast2-docker.pkg.dev/datadog-ese-sandbox/indowebinar/load-generator:0.7.0
+          command: [k6, run, --quiet, /rush/script.js]
+          env:
+            - name: BASE_URL
+              value: https://136-69-32-40.sslip.io
+          envFrom:
+            - secretRef: { name: load-generator }
+          volumeMounts:
+            - { name: script, mountPath: /rush }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 384Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 12345
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: script
+          configMap: { name: scenario-gopay-rush }

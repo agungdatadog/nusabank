@@ -71,22 +71,26 @@ log in to the demo org first.
 40% of GoPay calls through the PPOB aggregator fail with 503. One partner breaks; every
 other biller stays healthy.
 
-Start ~15 min before the segment so the monitor has alerted:
+Start ~15 min before the segment so the monitor has alerted. The second command adds a
+rush of ordinary customers topping up GoPay (~1 per second for 30 min, dozens of different CIFs),
+so step 2 shows many customers hit, not just you. Background traffic alone gives only ~2–3
+GoPay failures per 10 minutes.
 ```bash
 curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
   -d '{"target":"ppob","biller_code":"gopay","enabled":true,"error_rate":0.4,"error_status":503}'
+kubectl apply -f tools/scenarios/gopay-rush.yaml
 ```
 
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
 | 0 | Show it: GoPay top-up fails | Customer browser → **Top Up & Tagihan** → GoPay → pick a nominal → pay. 40% fail, so retry until the red error "GoPay sedang gangguan, silakan coba lagi" appears; then pay a PLN token to show it works | — (Nusa Bank app) | This is what our customers are seeing right now | [/bayar](https://136-69-32-40.sslip.io/bayar) |
 | 1 | "A customer complains GoPay top-up fails" | Open Session Replay → search `@usr.id:<CIF>` ([why it can be empty](#cif-note)) → open the latest session → **Play**, pause on the GoPay error toast | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue%20%40session.type%3Auser) |
-| 2 | Is it widespread? | From the replay's error event click through to the Error Tracking issue → show the Users / Sessions counts and the `partner` tag | Error Tracking issue "GoPay sedang gangguan…" — users, sessions, `partner:ppob:gopay` | From one complaint to impact | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
+| 2 | Is it widespread? | Open the link (backend issues on `nusabank-biller`) → open "GoPay sedang gangguan, silakan coba lagi" → show the occurrence count, how many customers (`@usr.id`, one CIF each) are hit, and `partner.name:ppob:gopay`. The browser-side issue from the replay counts real browser sessions only, so it shows just you | Error Tracking backend issue on `nusabank-biller` — occurrences, customers, `partner.name:ppob:gopay` | From one complaint to many customers | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
 | 3 | Is it us? | Open the link (already grouped by `peer.service`) → click the red `ppob-gopay` row → open one error trace and expand the `ppob.request` span | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo&agg_m=count&agg_m_source=base&agg_t=count&agg_q=%40peer.service&agg_q_source=base&cols=core_service%2Ccore_resource_name%2Clog_duration%2Clog_http.method%2Clog_http.status_code&fromUser=false&historicalData=true&messageDisplay=inline&query_translation_version=v0&sort=desc&sort_m=&sort_m_source=&sort_t=&spanType=all&storage=hot&top_n=10&top_o=top&traceQuery=&view=spans&x_missing=true) |
 | 4 | How bad? | Open the SLO → switch to the per-biller view → point at GoPay's budget dropping; then open the alerting monitor | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 5 | Root cause, fast | On the alerting monitor click the Bits investigation → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 6 | Act | Open Incidents → **Declare Incident** → link the monitor and the runbook notebook *(manual today)* | Incident declared, on-call paged, runbook notebook [GoPay top-up is failing](https://app.datadoghq.com/notebook/16482580) | *(On-Call / Incident / Workflow — still to build)* | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
-| 7 | Recover | Run `curl -s -X DELETE $S` → back on the SLO/monitor, wait ~2 min for green | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
+| 7 | Recover | Run `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml` → back on the SLO/monitor, wait ~2 min for green | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
 
 <a id="cif-note"></a>
 **CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
@@ -99,7 +103,7 @@ On stage, don't rely on the session-level facet: search **Views** for `@usr.id:<
 `@usr.name:"<name>"`) and open the replay from that view, or use a session that has already
 ended (~15 min idle). Check this in rehearsal.
 
-End: `curl -s -X DELETE $S`.
+End: `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml`.
 
 <a id="bifast-errors"></a>
 ## Part 2 — `bifast-errors`: Datadog switches the rail off, a person switches it back on
