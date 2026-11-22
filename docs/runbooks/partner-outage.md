@@ -44,9 +44,3 @@ outbound calls: `ppob.request` spans in `nusabank-biller` and `partner.request` 
 - Transfers that ended `FAILED RAIL_UNAVAILABLE` are re-driven by operators from `/ops`.
 - Note the SLO budget consumed (`PPOB billers available`, `Transfer rails available`) in
   the incident postmortem.
-
-## Game days
-Resilience drills inject partner faults through `partner-mock`, the stand-in for every
-partner in this demo (see `docs/episodes/ep2-gameday.md`). If an investigation finds an
-active fault scenario, the incident is a drill: report the scenario and its window, then
-follow this runbook as if it were real.
