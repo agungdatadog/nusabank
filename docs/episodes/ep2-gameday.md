@@ -75,6 +75,14 @@ log in to the demo org first.
 40% of GoPay calls through the PPOB aggregator fail with 503. One partner breaks; every
 other biller stays healthy.
 
+**The story.** A customer complains, and we trace it to GoPay, an external partner, in minutes
+(steps 0–5). The on-call is paged automatically and declares a Partner outage incident (6–7).
+We can't fix GoPay, so the incident contains the damage: money is safe and only GoPay is
+affected (8). We escalate to the partner with evidence (9). The partner fixes it on their side
+(10). We prove the recovery with data (11), then resolve the incident and start the postmortem
+(12). No workflow and nothing switched off in the app: this part is about finding it fast and
+coordinating.
+
 Start ~15 min before the segment so the monitor has alerted:
 ```bash
 curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
@@ -90,8 +98,12 @@ curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
 | 4 | How bad? | Open the SLO → switch to the per-biller view → point at GoPay's budget dropping; then open the alerting monitor | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 5 | Root cause, fast | On the alerting monitor click the Bits investigation → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 6 | Who's been told? | Open On-Call → Pages → the page for **Digital Channels** → show who was paged and the escalation policy behind it; acknowledge it | The P2 monitor (`@oncall-nusabank-channels`) paged the Digital Channels on-call by itself: warn → low urgency, alert → high. Schedule "Digital Channels — primary"; 5 min to acknowledge before it escalates to the whole team | Nobody had to be watching a dashboard: the owning team was paged by the alert | [On-Call](https://app.datadoghq.com/on-call/teams) · [Pages](https://app.datadoghq.com/on-call/pages) |
-| 7 | Act | On the alerting monitor → **Declare Incident** → type **Partner outage**, severity **SEV-2**, customer impact "GoPay top-up failing for ~40% of attempts" → open the incident → link the runbook notebook | Incident of type Partner outage; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | One click from alert to incident, with the partner-outage playbook attached | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
-| 8 | Recover | Run `curl -s -X DELETE $S` → back on the SLO/monitor, wait ~2 min for green (the page resolves with it) → resolve the incident → **Generate postmortem** | Scenario off; monitor recovers, SLO stops burning; postmortem notebook from the "Partner outage postmortem" template, with timeline and impact filled in | Prove the fix; the write-up starts itself | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Incidents](https://app.datadoghq.com/incidents) |
+| 7 | Declare | On the alerting monitor → **Declare Incident** → type **Partner outage**, severity **SEV-3** (one biller), customer impact "~40% of GoPay top-ups fail; other billers fine" → open the incident → link the runbook notebook | Incident of type Partner outage; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | One click from alert to incident, with the partner-outage playbook attached | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
+| 8 | Contain | In the incident, point at the impact and the money section of the runbook; back on the trace view, show the other `ppob-*` rows green | Incident impact; runbook "money is safe"; traces grouped by `peer.service` | Money is safe: funds are held before each GoPay call and released when it fails. Only GoPay is affected | [Incidents](https://app.datadoghq.com/incidents) |
+| 9 | Escalate to the partner | Incident → **Timeline** → add a note: "Escalated to GoPay ops desk via the PPOB aggregator: since <start>, ~40% 503s, sample trace <ID from step 3>" | Incident timeline note | We found it in minutes and handed the partner proof, not a guess | [Incidents](https://app.datadoghq.com/incidents) |
+| 10 | The partner fixes it | Say "GoPay confirms a fix on their side" and run `curl -s -X DELETE $S` off-camera | Scenario off | The fix is the partner's; our job is to know when it's real | — |
+| 11 | Verify with data | Watch the monitor turn green (~2 min) and the page resolve; check the SLO has stopped burning; in the customer browser pay a GoPay top-up successfully | `ppob-gopay` errors back to zero, monitor OK, page resolved, SLO flat | Recovery is proven by data, not by the partner's word | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [/bayar](https://136-69-32-40.sslip.io/bayar) |
+| 12 | Close | Incident → status **Resolved** → **Generate postmortem** → scroll to Money and Follow-ups | Postmortem notebook from the "Partner outage postmortem" template: timeline, time to detect and to resolve, impact filled in | One complaint, one partner, money safe, partner told, recovery proven, write-up started | [Incidents](https://app.datadoghq.com/incidents) |
 
 <a id="cif-note"></a>
 **CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
@@ -328,7 +340,7 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 - On-Call beyond Part 1: only "Biller … is failing" pages (`@oncall-nusabank-channels`), and only
   Digital Channels has a schedule; the other monitors notify nobody. The BI FAST monitor's only
   handle is the workflow.
-- Incidents are declared by hand (Part 1 step 7); the workflows record change events but don't
+- Incidents are declared by hand (Part 1 step 7, by design); the workflows record change events but don't
   declare one.
 - Scenario the README promises but nothing toggles yet: Kafka consumer lag behind a stale
   balance (DSM story).

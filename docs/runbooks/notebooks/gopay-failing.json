@@ -102,7 +102,7 @@
       "attributes": {
         "definition": {
           "type": "markdown",
-          "text": "## 3. Act\n1. Declare an incident, **SEV-3** (one biller; other top-ups and bill payments work).\n2. Escalate to the PPOB aggregator's operations desk for GoPay with the time window, error rate and a sample request ID from the `ppob.request` span. *(Nusa Bank is fictional — no real contacts here.)*\n3. Customer communication: in-app banner *\"Top up GoPay sedang terganggu\"*; suggest another e-wallet (OVO, DANA, ShopeePay).\n4. Do **not** retry GoPay calls in a tight loop — outages get worse under retry storms."
+          "text": "## 3. Act\n1. Declare an incident, **SEV-3** (one biller; other top-ups and bill payments work).\n2. Escalate to the PPOB aggregator's operations desk for GoPay with the time window, error rate and a sample request ID from the `ppob.request` span. *(Nusa Bank is fictional — no real contacts here.)*\n3. Customer communication: tell Customer Care that GoPay top-up is disrupted (customers see *\"GoPay sedang gangguan, silakan coba lagi\"*); suggest another e-wallet (OVO, DANA, ShopeePay).\n4. Do **not** retry GoPay calls in a tight loop — outages get worse under retry storms."
         }
       },
       "type": "notebook_cells"
