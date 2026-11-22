@@ -65,7 +65,8 @@ resource "datadog_software_catalog" "service" {
 locals {
   partner_runbook = "https://github.com/agungdatadog/nusabank/blob/main/docs/runbooks/partner-outage.md"
   # Notebook from docs/runbooks/notebooks/gopay-failing.json (tools/notebooks/apply.py); no Terraform resource for notebooks.
-  gopay_runbook = "https://app.datadoghq.com/notebook/16482580"
+  gopay_runbook_id = "16482580"
+  gopay_runbook    = "https://app.datadoghq.com/notebook/${local.gopay_runbook_id}"
   external_partners = merge(
     { for b, title in {
       gopay     = "GoPay", ovo = "OVO", dana = "DANA", shopeepay = "ShopeePay", linkaja = "LinkAja",
