@@ -185,7 +185,7 @@ resource "datadog_monitor" "partner_ppob_errors" {
     Runbook (GoPay): ${local.gopay_runbook}
     {{^is_exact_match "[peer.service].name" "ppob-gopay"}}Other billers: follow the partner outage runbook ${local.partner_runbook}{{/is_exact_match}}
 
-    @oncall-nusabank-channels
+    @oncall-nusabank-app-support
   EOT
   priority = 2
   monitor_thresholds {

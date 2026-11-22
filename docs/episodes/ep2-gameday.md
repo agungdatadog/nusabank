@@ -62,9 +62,10 @@ log in to the demo org first.
       "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3), and
       "Slow loan simulation (p95)" (Part 4, if Bits is part of it);
       a monitor re-created by Terraform loses it.
-- [ ] On-Call: the presenter is on call for **Digital Channels** (`on_call_emails` in
-      `terraform/datadog/variables.tf`), the Datadog On-Call app is installed and logged in, and a
-      test page arrives (On-Call → Pages → **Page**, team `nusabank-channels`, low urgency).
+- [ ] On-Call: the presenter is on call for **Application Support** and **Digital Channels**
+      (`on_call_emails` in `terraform/datadog/variables.tf`), the Datadog On-Call app is installed
+      and logged in, and a test page arrives (On-Call → Pages → **Page**, team
+      `nusabank-app-support`, low urgency).
 - [ ] No open incident or unresolved page left over from rehearsals.
 
 ---
@@ -76,12 +77,14 @@ log in to the demo org first.
 other biller stays healthy.
 
 **The story.** A customer complains, and we trace it to GoPay, an external partner, in minutes
-(steps 0–5). The on-call is paged automatically and declares a Partner outage incident (6–7).
-We can't fix GoPay, so the incident contains the damage: money is safe and only GoPay is
-affected (8). We escalate to the partner with evidence (9). The partner fixes it on their side
-(10). We prove the recovery with data (11), then resolve the incident and start the postmortem
-(12). No workflow and nothing switched off in the app: this part is about finding it fast and
-coordinating.
+(steps 0–4). The monitor has already paged Application Support, the first line in Operations: they
+follow the runbook while Bits investigates (5), read Bits' conclusion (6), declare a Partner
+outage incident from it (7), and page Digital Channels, the team that owns the biller service,
+from the incident (8). We can't fix GoPay, so the incident contains the damage: money is safe and
+only GoPay is affected (9). We escalate to the partner with evidence (10). The partner fixes it on
+their side (11). We prove the recovery with data (12), then resolve the incident and start the
+postmortem (13). No workflow and nothing switched off in the app: this part is about finding it
+fast and coordinating.
 
 Start ~15 min before the segment so the monitor has alerted. The second command adds a
 rush of ordinary customers topping up GoPay (~1 per second for 30 min, dozens of different CIFs),
@@ -100,14 +103,15 @@ kubectl apply -f tools/scenarios/gopay-rush.yaml
 | 2 | Is it widespread? | Open the link (backend issues on `nusabank-biller`) → open "GoPay sedang gangguan, silakan coba lagi" → show the occurrence count, how many customers (`@usr.id`, one CIF each) are hit, and `partner.name:ppob:gopay`. The browser-side issue from the replay counts real browser sessions only, so it shows just you | Error Tracking backend issue on `nusabank-biller` — occurrences, customers, `partner.name:ppob:gopay` | From one complaint to many customers | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
 | 3 | Is it us? | Open the link (already grouped by `peer.service`) → click the red `ppob-gopay` row → open one error trace and expand the `ppob.request` span | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo&agg_m=count&agg_m_source=base&agg_t=count&agg_q=%40peer.service&agg_q_source=base&cols=core_service%2Ccore_resource_name%2Clog_duration%2Clog_http.method%2Clog_http.status_code&fromUser=false&historicalData=true&messageDisplay=inline&query_translation_version=v0&sort=desc&sort_m=&sort_m_source=&sort_t=&spanType=all&storage=hot&top_n=10&top_o=top&traceQuery=&view=spans&x_missing=true) |
 | 4 | How bad? | Open the SLO → switch to the per-biller view → point at GoPay's budget dropping; then open the alerting monitor | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
-| 5 | Root cause, fast | On the alerting monitor click the Bits investigation → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
-| 6 | Who's been told? | Open On-Call → Pages → the page for **Digital Channels** → show who was paged and the escalation policy behind it; acknowledge it | The P2 monitor (`@oncall-nusabank-channels`) paged the Digital Channels on-call by itself: warn → low urgency, alert → high. Schedule "Digital Channels — primary"; 5 min to acknowledge before it escalates to the whole team | Nobody had to be watching a dashboard: the owning team was paged by the alert | [On-Call](https://app.datadoghq.com/on-call/teams) · [Pages](https://app.datadoghq.com/on-call/pages) |
-| 7 | Declare | On the alerting monitor → **Declare Incident** → type **Partner outage**, severity **SEV-3** (one biller), customer impact "~40% of GoPay top-ups fail; other billers fine" → open the incident → link the runbook notebook | Incident of type Partner outage; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | One click from alert to incident, with the partner-outage playbook attached | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
-| 8 | Contain | In the incident, point at the impact and the money section of the runbook; back on the trace view, show the other `ppob-*` rows green | Incident impact; runbook "money is safe"; traces grouped by `peer.service` | Money is safe: funds are held before each GoPay call and released when it fails. Only GoPay is affected | [Incidents](https://app.datadoghq.com/incidents) |
-| 9 | Escalate to the partner | Incident → **Timeline** → add a note: "Escalated to GoPay ops desk via the PPOB aggregator: since <start>, ~40% 503s, sample trace <ID from step 3>" | Incident timeline note | We found it in minutes and handed the partner proof, not a guess | [Incidents](https://app.datadoghq.com/incidents) |
-| 10 | The partner fixes it | Say "GoPay confirms a fix on their side" and run `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml` off-camera | Scenario off | The fix is the partner's; our job is to know when it's real | — |
-| 11 | Verify with data | Watch the monitor turn green (~2 min) and the page resolve; check the SLO has stopped burning; in the customer browser pay a GoPay top-up successfully | `ppob-gopay` errors back to zero, monitor OK, page resolved, SLO flat | Recovery is proven by data, not by the partner's word | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [/bayar](https://136-69-32-40.sslip.io/bayar) |
-| 12 | Close | Incident → status **Resolved** → **Generate postmortem** → scroll to Money and Follow-ups | Postmortem notebook from the "Partner outage postmortem" template: timeline, time to detect and to resolve, impact filled in | One complaint, one partner, money safe, partner told, recovery proven, write-up started | [Incidents](https://app.datadoghq.com/incidents) |
+| 5 | First line is on it | Open On-Call → Pages → the **Application Support** page from the monitor → **Acknowledge** → back on the monitor, open the **Runbook** panel (GoPay notebook) and walk its first steps while Bits investigates in the background | The P2 monitor (`@oncall-nusabank-app-support`) paged Application Support (Operations) by itself: warn → low urgency, alert → high; 5 min to acknowledge before it escalates to the whole team. Bits started investigating when the monitor alerted | The alert reached a person with a runbook, and an AI started the investigation at the same moment | [Pages](https://app.datadoghq.com/on-call/pages) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
+| 6 | Root cause, fast | On the monitor click the Bits investigation (finished by now) → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
+| 7 | Declare | In the Bits investigation → **Declare Incident** → type **Partner outage**, severity **SEV-3** (one biller), customer impact "~40% of GoPay top-ups fail; other billers fine" | Incident of type Partner outage, carrying the investigation; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | From finding to incident in one click, with the evidence attached | [Incidents](https://app.datadoghq.com/incidents) |
+| 8 | Bring in the owners | In the incident → **Page** (On-Call) → team **Nusa Bank Digital Channels** → show the page arrive, high urgency, and the escalation policy behind it | Page to `nusabank-channels`, who own `nusabank-biller`; always high urgency, since only a person in an incident pages them | First line triaged; the owning team joins with the incident and the evidence already in front of them | [Incidents](https://app.datadoghq.com/incidents) · [On-Call](https://app.datadoghq.com/on-call/teams) |
+| 9 | Contain | In the incident, point at the impact and the money section of the runbook; back on the trace view, show the other `ppob-*` rows green | Incident impact; runbook "money is safe"; traces grouped by `peer.service` | Money is safe: funds are held before each GoPay call and released when it fails. Only GoPay is affected | [Incidents](https://app.datadoghq.com/incidents) |
+| 10 | Escalate to the partner | Incident → **Timeline** → add a note: "Escalated to GoPay ops desk via the PPOB aggregator: since <start>, ~40% 503s, sample trace <ID from step 3>" | Incident timeline note | We found it in minutes and handed the partner proof, not a guess | [Incidents](https://app.datadoghq.com/incidents) |
+| 11 | The partner fixes it | Say "GoPay confirms a fix on their side" and run `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml` off-camera | Scenario off | The fix is the partner's; our job is to know when it's real | — |
+| 12 | Verify with data | Watch the monitor turn green (~2 min) and Application Support's page resolve with it; resolve the Digital Channels page; check the SLO has stopped burning; in the customer browser pay a GoPay top-up successfully | `ppob-gopay` errors back to zero, monitor OK, page resolved, SLO flat | Recovery is proven by data, not by the partner's word | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [/bayar](https://136-69-32-40.sslip.io/bayar) |
+| 13 | Close | Incident → status **Resolved** → **Generate postmortem** → scroll to Money and Follow-ups | Postmortem notebook from the "Partner outage postmortem" template: timeline, time to detect and to resolve, impact filled in | One complaint, one partner, money safe, partner told, recovery proven, write-up started | [Incidents](https://app.datadoghq.com/incidents) |
 
 <a id="cif-note"></a>
 **CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
@@ -341,10 +345,9 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 | 2 | Did Datadog flag it? | Open Security signals → filter `env:demo` → open the newest signal | Credential-stuffing / brute-force signal on the login | Detection without writing a rule | [Security signals](https://app.datadoghq.com/security?query=env%3Ademo) |
 
 ## Not ready yet
-- On-Call beyond Part 1: only "Biller … is failing" pages (`@oncall-nusabank-channels`), and only
-  Digital Channels has a schedule; the other monitors notify nobody. The BI FAST monitor's only
-  handle is the workflow.
-- Incidents are declared by hand (Part 1 step 7, by design); the workflows record change events but don't
-  declare one.
+- On-Call beyond Part 1: only "Biller … is failing" pages (`@oncall-nusabank-app-support`); the
+  other monitors notify nobody. The BI FAST monitor's only handle is the workflow.
+- Incidents are declared by hand, from the Bits investigation (Part 1 step 7, by design); the
+  workflows record change events but don't declare one.
 - Scenario the README promises but nothing toggles yet: Kafka consumer lag behind a stale
   balance (DSM story).

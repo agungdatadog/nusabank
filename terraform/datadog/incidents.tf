@@ -1,5 +1,5 @@
 # Incident Management for a partner outage (EP2 Part 1): a type of its own, so declaring one picks up
-# the notification template below and the postmortem template. Declared by hand from the monitor on stage.
+# the notification template below and the postmortem template. Declared by Application Support from the Bits investigation on stage.
 resource "datadog_incident_type" "partner_outage" {
   name        = "Partner outage"
   description = "An external partner (biller, BI FAST, SKN, credit bureau, FX) fails or slows down. We have no telemetry inside the partner: the evidence is our outbound spans to it."
@@ -42,8 +42,8 @@ resource "datadog_incident_notification_rule" "partner_outage_declared" {
 
 output "on_call" {
   value = {
-    schedule          = datadog_on_call_schedule.channels_primary.id
-    escalation_policy = datadog_on_call_escalation_policy.channels.id
-    incident_type     = datadog_incident_type.partner_outage.id
+    app_support_schedule = datadog_on_call_schedule.app_support_primary.id
+    channels_schedule    = datadog_on_call_schedule.channels_primary.id
+    incident_type        = datadog_incident_type.partner_outage.id
   }
 }

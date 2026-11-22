@@ -25,6 +25,8 @@ outbound calls: `ppob.request` spans in `nusabank-biller` and `partner.request` 
 
 ## 3. Act
 1. Declare an incident (SEV-3 for one biller, SEV-2 for BI FAST or the whole aggregator).
+   From the incident, page the team that owns the calling service (Digital Channels for
+   billers, Payments for rails, Core Banking for the credit bureau).
 2. Escalate to the partner's operations desk with the time window, error rate and a
    sample request ID from the span. *(Nusa Bank is fictional — no real contacts here.)*
 3. Customer communication: tell Customer Care which product is disrupted and the message
