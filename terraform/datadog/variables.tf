@@ -19,3 +19,9 @@ variable "gce_instance_filters" {
     "owner:anbdi",
   ]
 }
+
+variable "on_call_emails" {
+  type        = list(string)
+  description = "Datadog users in the Digital Channels on-call rotation, in rotation order. They get real pages."
+  default     = ["shoffa.alarofat@datadoghq.com"]
+}
