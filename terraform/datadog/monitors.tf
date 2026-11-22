@@ -173,7 +173,7 @@ resource "datadog_monitor" "partner_ppob_errors" {
   query = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
   # One group per biller. The GoPay notebook link stays outside any conditional: the monitor page's
   # Runbook panel only picks up a plain notebook URL. Other billers also get the generic runbook.
-  message  = <<-EOT
+  message = <<-EOT
     {{#is_alert}}**{{[peer.service].name}}** is failing: {{value}}% of payments to this biller failed in the last 10 minutes (alert at {{threshold}}%).{{/is_alert}}
     {{#is_warning}}**{{[peer.service].name}}** is degraded: {{value}}% of payments to this biller failed in the last 10 minutes (warning at {{warn_threshold}}%).{{/is_warning}}
     {{#is_recovery}}**{{[peer.service].name}}** has recovered: payment errors are back below {{warn_threshold}}%.{{/is_recovery}}
@@ -187,7 +187,16 @@ resource "datadog_monitor" "partner_ppob_errors" {
 
     @oncall-nusabank-app-support
   EOT
-  priority = 2
+  # The monitor page's "Attached Runbook" section; the URL in the message alone doesn't fill it.
+  assets {
+    category      = "runbook"
+    name          = "Datadog Runbook"
+    resource_type = "notebook"
+    resource_key  = local.gopay_runbook_id
+    url           = "/notebook/${local.gopay_runbook_id}"
+  }
+  on_missing_data = "default"
+  priority        = 2
   monitor_thresholds {
     critical = 10
     warning  = 3
