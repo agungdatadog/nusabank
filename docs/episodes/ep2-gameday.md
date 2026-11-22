@@ -62,6 +62,10 @@ log in to the demo org first.
       "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3), and
       "Slow loan simulation (p95)" (Part 4, if Bits is part of it);
       a monitor re-created by Terraform loses it.
+- [ ] On-Call: the presenter is on call for **Digital Channels** (`on_call_emails` in
+      `terraform/datadog/variables.tf`), the Datadog On-Call app is installed and logged in, and a
+      test page arrives (On-Call → Pages → **Page**, team `nusabank-channels`, low urgency).
+- [ ] No open incident or unresolved page left over from rehearsals.
 
 ---
 
@@ -85,8 +89,9 @@ curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
 | 3 | Is it us? | Open the link (already grouped by `peer.service`) → click the red `ppob-gopay` row → open one error trace and expand the `ppob.request` span | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo&agg_m=count&agg_m_source=base&agg_t=count&agg_q=%40peer.service&agg_q_source=base&cols=core_service%2Ccore_resource_name%2Clog_duration%2Clog_http.method%2Clog_http.status_code&fromUser=false&historicalData=true&messageDisplay=inline&query_translation_version=v0&sort=desc&sort_m=&sort_m_source=&sort_t=&spanType=all&storage=hot&top_n=10&top_o=top&traceQuery=&view=spans&x_missing=true) |
 | 4 | How bad? | Open the SLO → switch to the per-biller view → point at GoPay's budget dropping; then open the alerting monitor | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 5 | Root cause, fast | On the alerting monitor click the Bits investigation → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
-| 6 | Act | Open Incidents → **Declare Incident** → link the monitor and the runbook notebook *(manual today)* | Incident declared, on-call paged, runbook notebook [GoPay top-up is failing](https://app.datadoghq.com/notebook/16482580) | *(On-Call / Incident / Workflow — still to build)* | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
-| 7 | Recover | Run `curl -s -X DELETE $S` → back on the SLO/monitor, wait ~2 min for green | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
+| 6 | Who's been told? | Open On-Call → Pages → the page for **Digital Channels** → show who was paged and the escalation policy behind it; acknowledge it | The P2 monitor (`@oncall-nusabank-channels`) paged the Digital Channels on-call by itself: warn → low urgency, alert → high. Schedule "Digital Channels — primary"; 5 min to acknowledge before it escalates to the whole team | Nobody had to be watching a dashboard: the owning team was paged by the alert | [On-Call](https://app.datadoghq.com/on-call/teams) · [Pages](https://app.datadoghq.com/on-call/pages) |
+| 7 | Act | On the alerting monitor → **Declare Incident** → type **Partner outage**, severity **SEV-2**, customer impact "GoPay top-up failing for ~40% of attempts" → open the incident → link the runbook notebook | Incident of type Partner outage; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | One click from alert to incident, with the partner-outage playbook attached | [Incidents](https://app.datadoghq.com/incidents) · [Runbook](https://app.datadoghq.com/notebook/16482580) |
+| 8 | Recover | Run `curl -s -X DELETE $S` → back on the SLO/monitor, wait ~2 min for green (the page resolves with it) → resolve the incident → **Generate postmortem** | Scenario off; monitor recovers, SLO stops burning; postmortem notebook from the "Partner outage postmortem" template, with timeline and impact filled in | Prove the fix; the write-up starts itself | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Incidents](https://app.datadoghq.com/incidents) |
 
 <a id="cif-note"></a>
 **CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
@@ -320,8 +325,10 @@ signature — App & API Protection / Cloud SIEM rather than this game day.
 | 2 | Did Datadog flag it? | Open Security signals → filter `env:demo` → open the newest signal | Credential-stuffing / brute-force signal on the login | Detection without writing a rule | [Security signals](https://app.datadoghq.com/security?query=env%3Ademo) |
 
 ## Not ready yet
-- On-Call schedules and monitor notification routing (monitors notify nobody today; the BI FAST
-  monitor's only handle is the workflow).
-- Incident Management settings; the workflows record change events but don't declare an incident.
+- On-Call beyond Part 1: only "Biller … is failing" pages (`@oncall-nusabank-channels`), and only
+  Digital Channels has a schedule; the other monitors notify nobody. The BI FAST monitor's only
+  handle is the workflow.
+- Incidents are declared by hand (Part 1 step 7); the workflows record change events but don't
+  declare one.
 - Scenario the README promises but nothing toggles yet: Kafka consumer lag behind a stale
   balance (DSM story).
