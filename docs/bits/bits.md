@@ -32,11 +32,5 @@ the fix with Bits Code.
 partner call. On partner 5xx the hold is released and the payment ends `FAILED`; on timeout
 bill payments stay `PENDING`. Always state whether any customer money was moved or left held.
 
-**Game days.** The team runs resilience drills that inject partner faults through the
-`partner-mock` service (scenarios such as `bifast-errors`, `ppob-gopay-errors`). When you
-find an active scenario, call the incident a **game day drill**, give the scenario and its
-time window, and still report impact, blast radius and the recommended response as if the
-partner outage were real.
-
 **Known noise.** App and API Protection rule `sqr-000-014` (SSRF) fires on our own
 `sslip.io` Origin/Referer headers — a known false positive, not part of an incident.
