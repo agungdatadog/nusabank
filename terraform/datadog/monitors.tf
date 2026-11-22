@@ -168,10 +168,22 @@ resource "datadog_monitor" "partner_ppob_latency" {
 }
 
 resource "datadog_monitor" "partner_ppob_errors" {
-  name    = "[Nusa Bank] Biller {{[peer.service].name}} is failing"
-  type    = "query alert"
-  query   = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
-  message = "{{value}}% of calls to **{{[peer.service].name}}** failed in the last 10 minutes. Business impact: nusabank.biller.payment.count status:failed per biller on the dashboard.\n\nExternal partner — follow the partner outage runbook: ${local.partner_runbook}"
+  name  = "[Nusa Bank] Biller {{[peer.service].name}} is failing"
+  type  = "query alert"
+  query = "sum(last_10m):100 * default_zero(sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()) / sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count() > 10"
+  # One group per biller. GoPay has its own runbook notebook (Part 1 of EP2); the rest use the generic one.
+  message  = <<-EOT
+    {{#is_alert}}**{{[peer.service].name}}** is failing: {{value}}% of payments to this biller failed in the last 10 minutes (alert at {{threshold}}%).{{/is_alert}}
+    {{#is_warning}}**{{[peer.service].name}}** is degraded: {{value}}% of payments to this biller failed in the last 10 minutes (warning at {{warn_threshold}}%).{{/is_warning}}
+    {{#is_recovery}}**{{[peer.service].name}}** has recovered: payment errors are back below {{warn_threshold}}%.{{/is_recovery}}
+    {{^is_recovery}}
+    **Customer impact:** customers paying this biller in Top Up & Tagihan get "… sedang gangguan, silakan coba lagi". Other billers are unaffected unless they alert too.
+    **Money:** funds are held before the call to the partner; a failed payment releases the hold, so no money moves.
+    **Where:** outbound `ppob.request` spans from `nusabank-biller` to `{{[peer.service].name}}`, an external partner behind the PPOB aggregator. We have no telemetry inside the partner.
+    {{/is_recovery}}
+    {{#is_exact_match "[peer.service].name" "ppob-gopay"}}Runbook: [GoPay top-up is failing](${local.gopay_runbook}){{/is_exact_match}}{{^is_exact_match "[peer.service].name" "ppob-gopay"}}Runbook: [Partner outage](${local.partner_runbook}){{/is_exact_match}}
+  EOT
+  priority = 2
   monitor_thresholds {
     critical = 10
     warning  = 3
