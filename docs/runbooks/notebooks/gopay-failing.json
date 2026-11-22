@@ -1,0 +1,129 @@
+{
+  "name": "[Nusa Bank] Runbook — GoPay top-up is failing",
+  "time": {
+    "live_span": "1h"
+  },
+  "status": "published",
+  "metadata": {
+    "type": "runbook"
+  },
+  "cells": [
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "# Runbook — GoPay top-up is failing\n\nGoPay is an external biller that Nusa Bank reaches through the **PPOB aggregator** (host `ppob-gateway`).\nWe cannot see inside GoPay or the aggregator: we only observe our own outbound `ppob.request` spans in\n`nusabank-biller`, tagged `peer.service:ppob-gopay`.\n\n**Customer symptom:** *Top Up & Tagihan* → GoPay → pay fails with **\"GoPay sedang gangguan, silakan coba lagi\"**.\n**Alerts:** monitor *[Nusa Bank] Biller ppob-gopay is failing*, SLO *PPOB billers available (per biller)* burning for GoPay.\n**Owner:** `nusabank-channels`."
+        }
+      },
+      "type": "notebook_cells"
+    },
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## 1. Confirm it is GoPay, not us\n- The failing span is the **outbound** `ppob.request` (`span.kind:client`) to `ppob-gopay`, with `error.type:PARTNER_UNAVAILABLE` (503) or `PARTNER_TIMEOUT` (504).\n- **Blast radius:** only `ppob-gopay` is red below; PLN, Telkomsel, OVO and the other billers stay healthy. If every biller is red, it is the aggregator, not GoPay — this runbook does not apply.\n- No recent deploy of `nusabank-biller` (Change Tracking) and its database is healthy."
+        }
+      },
+      "type": "notebook_cells"
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "graph_size": "m",
+        "definition": {
+          "type": "timeseries",
+          "title": "ppob.request error rate by biller (%)",
+          "show_legend": true,
+          "requests": [
+            {
+              "response_format": "timeseries",
+              "display_type": "line",
+              "queries": [
+                {
+                  "data_source": "metrics",
+                  "name": "a",
+                  "query": "sum:trace.ppob.request.errors{env:demo} by {peer.service}.as_count()"
+                },
+                {
+                  "data_source": "metrics",
+                  "name": "b",
+                  "query": "sum:trace.ppob.request.hits{env:demo} by {peer.service}.as_count()"
+                }
+              ],
+              "formulas": [
+                {
+                  "formula": "100 * a / b"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## 2. Customer and money impact\n- Funds are reserved with an account-service **hold** before the call to GoPay.\n  - **503 from GoPay:** the payment ends `FAILED` and the hold is released. **No money moves.**\n  - **Timeout (504):** the payment stays `PENDING` with the hold kept until the background check settles it.\n- Size it with the chart below and the Error Tracking issue *\"GoPay sedang gangguan…\"* (users, sessions)."
+        }
+      },
+      "type": "notebook_cells"
+    },
+    {
+      "type": "notebook_cells",
+      "attributes": {
+        "graph_size": "m",
+        "definition": {
+          "type": "timeseries",
+          "title": "GoPay top-ups by status",
+          "show_legend": true,
+          "requests": [
+            {
+              "response_format": "timeseries",
+              "display_type": "bars",
+              "queries": [
+                {
+                  "data_source": "metrics",
+                  "name": "a",
+                  "query": "sum:nusabank.biller.payment.count{env:demo,biller:gopay} by {status}.as_count()"
+                }
+              ],
+              "formulas": [
+                {
+                  "formula": "a"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## 3. Act\n1. Declare an incident, **SEV-3** (one biller; other top-ups and bill payments work).\n2. Escalate to the PPOB aggregator's operations desk for GoPay with the time window, error rate and a sample request ID from the `ppob.request` span. *(Nusa Bank is fictional — no real contacts here.)*\n3. Customer communication: in-app banner *\"Top up GoPay sedang terganggu\"*; suggest another e-wallet (OVO, DANA, ShopeePay).\n4. Do **not** retry GoPay calls in a tight loop — outages get worse under retry storms."
+        }
+      },
+      "type": "notebook_cells"
+    },
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## 4. Recover and verify\n- The `ppob-gopay` error rate above returns to baseline and *Biller ppob-gopay is failing* recovers.\n- `PENDING` GoPay payments settle on their own through the background check; nothing to re-drive by hand.\n- Note the GoPay error budget consumed on *PPOB billers available (per biller)* in the postmortem."
+        }
+      },
+      "type": "notebook_cells"
+    },
+    {
+      "attributes": {
+        "definition": {
+          "type": "markdown",
+          "text": "## Game days\nResilience drills inject partner faults through `partner-mock`, the stand-in for GoPay and the aggregator in this demo\n(see `docs/episodes/ep2-gameday.md`). If an investigation finds an active fault, the incident is a drill: report the fault\nand its window, then follow this runbook as if it were real."
+        }
+      },
+      "type": "notebook_cells"
+    }
+  ]
+}
