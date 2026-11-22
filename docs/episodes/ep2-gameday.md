@@ -80,13 +80,24 @@ curl -s -X PUT $S/ppob-gopay-errors -H "$J" \
 | # | Moment | Do & click | Datadog | Talking point | Link |
 |---|--------|------------|---------|---------------|------|
 | 0 | Show it: GoPay top-up fails | Customer browser → **Top Up & Tagihan** → GoPay → pick a nominal → pay. 40% fail, so retry until the red error "GoPay sedang gangguan, silakan coba lagi" appears; then pay a PLN token to show it works | — (Nusa Bank app) | This is what our customers are seeing right now | [/bayar](https://136-69-32-40.sslip.io/bayar) |
-| 1 | "A customer complains GoPay top-up fails" | Open Session Replay → search `@usr.id:<CIF>` → open the latest session → **Play**, pause on the GoPay error toast | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
+| 1 | "A customer complains GoPay top-up fails" | Open Session Replay → search `@usr.id:<CIF>` ([why it can be empty](#cif-note)) → open the latest session → **Play**, pause on the GoPay error toast | RUM → Session Replay of the failed top-up (`@usr.id:<CIF>`) | See exactly what the customer saw | [Session Replay](https://app.datadoghq.com/rum/sessions?query=service%3Anusabank-frontend%20env%3Ademo%20%40session.has_replay%3Atrue) |
 | 2 | Is it widespread? | From the replay's error event click through to the Error Tracking issue → show the Users / Sessions counts and the `partner` tag | Error Tracking issue "GoPay sedang gangguan…" — users, sessions, `partner:ppob:gopay` | From one complaint to impact | [Error Tracking](https://app.datadoghq.com/error-tracking?query=service%3Anusabank-biller%20env%3Ademo) |
 | 3 | Is it us? | Open Traces → **Group by** `peer.service` → click the red `ppob-gopay` row → open one error trace and expand the `ppob.request` span | APM `nusabank-biller` → outbound `ppob.request` to `ppob-gopay` failing; other billers green | Blast radius: one partner | [Traces](https://app.datadoghq.com/apm/traces?query=service%3Anusabank-biller%20operation_name%3Appob.request%20env%3Ademo) |
 | 4 | How bad? | Open the SLO → switch to the per-biller view → point at GoPay's budget dropping; then open the alerting monitor | SLO "PPOB billers available (per biller)" burning for GoPay only; monitor "Biller … is failing" | Reliability in business terms | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 5 | Root cause, fast | On the alerting monitor click the Bits investigation → scroll through its steps → stop on the conclusion | Bits AI investigation from the monitor | Partner 503s, money safe, and it even finds the game-day injector | [Monitor → Bits](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) |
 | 6 | Act | Open Incidents → **Declare Incident** → link the monitor and runbook *(manual today)* | Incident declared, on-call paged, runbook `docs/runbooks/partner-outage.md` | *(On-Call / Incident / Workflow — still to build)* | [Incidents](https://app.datadoghq.com/incidents) |
 | 7 | Recover | Run `curl -s -X DELETE $S` → back on the SLO/monitor, wait ~2 min for green | Disable the scenario; monitor recovers, SLO stops burning | Prove the fix | [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
+
+<a id="cif-note"></a>
+**CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
+customer: one 10-digit number (e.g. `1002847351`) across all their accounts and products.
+After login the app calls `datadogRum.setUser({ id: cif, … })`
+(`services/frontend/src/auth.tsx`), so `@usr.id` is the CIF and `@usr.name` the customer's name.
+A session that starts on `/login` is anonymous until the login completes, and while it is
+still **in progress** the Sessions list can show **User Id → No matching values found**.
+On stage, don't rely on the session-level facet: search **Views** for `@usr.id:<CIF>` (or
+`@usr.name:"<name>"`) and open the replay from that view, or use a session that has already
+ended (~15 min idle). Check this in rehearsal.
 
 End: `curl -s -X DELETE $S`.
 
