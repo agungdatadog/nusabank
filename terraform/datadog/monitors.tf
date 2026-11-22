@@ -182,6 +182,8 @@ resource "datadog_monitor" "partner_ppob_errors" {
     **Where:** outbound `ppob.request` spans from `nusabank-biller` to `{{[peer.service].name}}`, an external partner behind the PPOB aggregator. We have no telemetry inside the partner.
     {{/is_recovery}}
     {{#is_exact_match "[peer.service].name" "ppob-gopay"}}Runbook: [GoPay top-up is failing](${local.gopay_runbook}){{/is_exact_match}}{{^is_exact_match "[peer.service].name" "ppob-gopay"}}Runbook: [Partner outage](${local.partner_runbook}){{/is_exact_match}}
+
+    @oncall-nusabank-channels
   EOT
   priority = 2
   monitor_thresholds {
