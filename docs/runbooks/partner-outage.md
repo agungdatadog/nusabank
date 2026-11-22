@@ -27,8 +27,8 @@ outbound calls: `ppob.request` spans in `nusabank-biller` and `partner.request` 
 1. Declare an incident (SEV-3 for one biller, SEV-2 for BI FAST or the whole aggregator).
 2. Escalate to the partner's operations desk with the time window, error rate and a
    sample request ID from the span. *(Nusa Bank is fictional — no real contacts here.)*
-3. Customer communication: in-app banner "GoPay top-up is temporarily disrupted";
-   suggest an alternative e-wallet or rail (BI FAST down → SKN for large transfers).
+3. Customer communication: tell Customer Care which product is disrupted and the message
+   customers see; suggest an alternative e-wallet or rail (BI FAST down → SKN for large transfers).
 4. Do **not** retry in a tight loop — partner outages get worse under retry storms.
 5. BI FAST: Workflow Automation takes it out of service automatically when "Rail bifast is
    failing" alerts (customers are steered to SKN). Any rail can also be switched off by hand
