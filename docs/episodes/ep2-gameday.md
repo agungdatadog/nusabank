@@ -63,8 +63,10 @@ log in to the demo org first.
       "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3), and
       "Slow loan simulation (p95)" (Part 4, if Bits is part of it);
       a monitor re-created by Terraform loses it.
-- [ ] On-Call: the presenter is on call for **Application Support** and **Digital Channels**
-      (`on_call_emails` in `terraform/datadog/variables.tf`), the Datadog On-Call app is installed
+- [ ] On-Call: the presenter is on call for **Application Support** (`on_call_emails`);
+      **Digital Channels** rotates weekly between Agung Nugroho and Daren Meisa
+      (`channels_on_call_emails`, both in `terraform/datadog/variables.tf`) — tell whoever is on
+      call that week a page is coming in step 8. The presenter has the Datadog On-Call app installed
       and logged in, and a test page arrives (On-Call → Pages → **Page**, team
       `nusabank-app-support`, low urgency).
 - [ ] No open incident or unresolved page left over from rehearsals.
