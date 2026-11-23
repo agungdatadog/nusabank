@@ -73,8 +73,16 @@ export function BillerPage() {
     const own = PHONE_CATEGORIES.includes(code) ? localPhone(customer?.phone) : "";
     setCustomerNumber(own);
     const op = code !== "EWALLET" ? operatorOf(own) : undefined;
-    setBillerCode(op && cat?.billers.some((b) => b.code === op) ? op : cat?.billers[0]?.code ?? "");
+    // A biller switched off during a partner outage is never preselected.
+    const usable = cat?.billers.filter((b) => b.available !== false) ?? [];
+    setBillerCode(op && usable.some((b) => b.code === op) ? op : usable[0]?.code ?? cat?.billers[0]?.code ?? "");
   };
+
+  const offBiller = current?.billers.find((b) => b.available === false);
+  const altBiller = current?.billers.find((b) => b.available !== false);
+  useEffect(() => {
+    if (offBiller) rumAction("biller_unavailable_shown", { biller: offBiller.code, category });
+  }, [offBiller?.code, category]);
 
   useEffect(() => {
     if (categories.length && !customerNumber && PHONE_CATEGORIES.includes(category)) chooseCategory(category);
@@ -178,11 +186,24 @@ export function BillerPage() {
               <button type="button" key={c.code} className={category === c.code ? "active" : ""} onClick={() => chooseCategory(c.code)}>{c.name}</button>
             ))}
           </div>
+          {offBiller && (
+            <div className="alert warn" role="status">
+              {t("bill.billerOffBanner", {
+                biller: offBiller.name,
+                since: offBiller.unavailable_since ? formatDateTime(offBiller.unavailable_since) : "-",
+                alt: altBiller ? altBiller.name : t("bill.billerOffAlt"),
+              })}
+            </div>
+          )}
           {current && current.billers.length > 1 && (
             <label>
               {t(category === "EWALLET" ? "bill.ewallet" : category === "PULSA" || category === "PAKET_DATA" ? "bill.operator" : "bill.provider")}
               <select value={billerCode} onChange={(e) => { setBillerCode(e.target.value); setProductCode(""); }}>
-                {current.billers.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
+                {current.billers.map((b) => (
+                  <option key={b.code} value={b.code} disabled={b.available === false}>
+                    {b.available === false ? `${b.name} — ${t("bill.billerOff")}` : b.name}
+                  </option>
+                ))}
               </select>
             </label>
           )}

@@ -24,6 +24,7 @@ interface Tracer {
   dogstatsd: {
     increment(name: string, value?: number, tags?: Tags): void;
     distribution(name: string, value: number, tags?: Tags): void;
+    gauge(name: string, value: number, tags?: Tags): void;
   };
 }
 
@@ -35,7 +36,7 @@ const noop: Tracer = {
   trace: (_name, _options, fn) => fn(noopSpan),
   inject: () => undefined,
   extract: () => null,
-  dogstatsd: { increment: () => undefined, distribution: () => undefined },
+  dogstatsd: { increment: () => undefined, distribution: () => undefined, gauge: () => undefined },
 };
 
 const injected = () => (globalThis as { _ddtrace?: Tracer })._ddtrace ?? noop;
@@ -49,6 +50,7 @@ const tracer: Tracer = {
   dogstatsd: {
     increment: (...args) => injected().dogstatsd.increment(...args),
     distribution: (...args) => injected().dogstatsd.distribution(...args),
+    gauge: (...args) => injected().dogstatsd.gauge(...args),
   },
 };
 

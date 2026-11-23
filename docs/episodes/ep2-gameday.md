@@ -15,7 +15,7 @@ All are OFF by default and switch themselves off after 3 hours unless the body s
 
 | ID | Partner | Caller in APM | What breaks | Use |
 |----|---------|---------------|-------------|-----|
-| [`ppob-gopay-errors`](#ppob-gopay-errors) | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1** — one biller breaks, the rest stay healthy |
+| [`ppob-gopay-errors`](#ppob-gopay-errors) | PPOB → GoPay | `nusabank-biller` | 40% of calls 503 | **Part 1** — one biller breaks, the rest stay healthy; Digital Channels switches GoPay off and back on |
 | [`bifast-errors`](#bifast-errors) | BI FAST | `nusabank-payment` | 30% of calls 503 | **Part 2** — workflow switches the rail off, a person switches it back on |
 | [`estatement-counterparty`](#estatement-counterparty) | — (our code) | `nusabank-account` → `nusabank-payment` | N+1 query on shared `pg-core`: e-Statement and transfers slow | **Part 3** — Bits finds the bug, Bits Code proposes the fix |
 | [`loan-audit-schedule`](#loan-audit-schedule) | — (our code) | `nusabank-loan` | Amortisation schedule recomputed per row at 1,000 digits: KPR simulation takes seconds of CPU | **Part 4** — the Profiler points at the method |
@@ -70,6 +70,9 @@ log in to the demo org first.
       and logged in, and a test page arrives (On-Call → Pages → **Page**, team
       `nusabank-app-support`, low urgency).
 - [ ] No open incident or unresolved page left over from rehearsals.
+- [ ] GoPay is on: dashboard **[Nusa Bank] Digital Channels — Top Up & Tagihan** shows
+      "GoPay in the app" at 1. The presenter's Datadog user can run workflows, and has run
+      both GoPay workflows once in rehearsal.
 
 ---
 
@@ -84,10 +87,18 @@ other biller stays healthy.
 follow the runbook while Bits investigates (5), read Bits' conclusion (6), declare a Partner
 outage incident from it (7), and page Digital Channels, the team that owns the biller service,
 from the incident (8). We can't fix GoPay, so the incident contains the damage: money is safe and
-only GoPay is affected (9). We escalate to the partner with evidence (10). The partner fixes it on
-their side (11). We prove the recovery with data (12), then resolve the incident and start the
-postmortem (13). No workflow and nothing switched off in the app: this part is about finding it
-fast and coordinating.
+only GoPay is affected (9). Digital Channels then switches GoPay off from their dashboard, so
+customers pick another e-wallet instead of failing (10). We escalate to the partner with evidence
+(11). The partner fixes it on their side (12). We prove the recovery with data (13), switch GoPay
+back on (14), then resolve the incident and start the postmortem (15).
+
+The switch is two manual workflows, **[Nusa Bank] Nonaktifkan GoPay** and **[Nusa Bank] Aktifkan
+kembali GoPay** (`terraform/datadog/workflows.tf`), run from the widgets on the dashboard
+**[Nusa Bank] Digital Channels — Top Up & Tagihan** (`terraform/datadog/dashboard-channels.tf`).
+Unlike BI FAST in Part 2, nothing runs them automatically. The owning team decides in the
+incident, and the audience sees each step happen. While GoPay is off, biller-service still sends
+GoPay one inquiry (no money involved) every 30 s per replica, so the error rate keeps reporting and
+step 13 has data to prove the recovery. A forgotten switch turns itself back on after 2 hours.
 
 Start ~15 min before the segment so the monitor has alerted. The second command adds a
 rush of ordinary customers topping up GoPay (~1 per second for 30 min, dozens of different CIFs),
@@ -111,10 +122,12 @@ kubectl apply -f tools/scenarios/gopay-rush.yaml
 | 7 | Declare | In the Bits investigation → **Declare Incident** → type **Partner outage**, severity **SEV-3** (one biller), customer impact "~40% of GoPay top-ups fail; other billers fine" | Incident of type Partner outage, carrying the investigation; its notification rule e-mails the responders from the "Partner outage declared" template (runbook, money is safe, next steps) | From finding to incident in one click, with the evidence attached | [Incidents](https://app.datadoghq.com/incidents) |
 | 8 | Bring in the owners | In the incident → **Page** (On-Call) → team **Nusa Bank Digital Channels** → show the page arrive, high urgency, and the escalation policy behind it | Page to `nusabank-channels`, who own `nusabank-biller`; always high urgency, since only a person in an incident pages them | First line triaged; the owning team joins with the incident and the evidence already in front of them | [Incidents](https://app.datadoghq.com/incidents) · [On-Call](https://app.datadoghq.com/on-call/teams) |
 | 9 | Contain | In the incident, point at the impact and the money section of the runbook; back on the trace view, show the other `ppob-*` rows green | Incident impact; runbook "money is safe"; traces grouped by `peer.service` | Money is safe: funds are held before each GoPay call and released when it fails. Only GoPay is affected | [Incidents](https://app.datadoghq.com/incidents) |
-| 10 | Escalate to the partner | Incident → **Timeline** → add a note: "Escalated to GoPay ops desk via the PPOB aggregator: since <start>, ~40% 503s, sample trace <ID from step 3>" | Incident timeline note | We found it in minutes and handed the partner proof, not a guess | [Incidents](https://app.datadoghq.com/incidents) |
-| 11 | The partner fixes it | Say "GoPay confirms a fix on their side" and run `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml` off-camera | Scenario off | The fix is the partner's; our job is to know when it's real | — |
-| 12 | Verify with data | Watch the monitor turn green (~2 min) and Application Support's page resolve with it; resolve the Digital Channels page; check the SLO has stopped burning; in the customer browser pay a GoPay top-up successfully | `ppob-gopay` errors back to zero, monitor OK, page resolved, SLO flat | Recovery is proven by data, not by the partner's word | [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) · [/bayar](https://136-69-32-40.sslip.io/bayar) |
-| 13 | Close | Incident → status **Resolved** → **Generate postmortem** → scroll to Money and Follow-ups | Postmortem notebook from the "Partner outage postmortem" template: timeline, time to detect and to resolve, impact filled in | One complaint, one partner, money safe, partner told, recovery proven, write-up started | [Incidents](https://app.datadoghq.com/incidents) |
+| 10 | Switch GoPay off | As Digital Channels, open the dashboard **[Nusa Bank] Digital Channels — Top Up & Tagihan** → widget **1 · Nonaktifkan GoPay** → **Run** → confirm. Watch "GoPay in the app" turn 0 and the switch appear under **Changes**; in the incident timeline add "GoPay disabled in the app". Then in the customer browser reload **Top Up & Tagihan** → E-wallet: GoPay is greyed out with a banner and OVO is preselected | Workflow run (PUT `/api/admin/billers/gopay/availability` as `ops.otomasi` → change event on `nusabank-biller`); `/bayar` with GoPay disabled | We can't fix GoPay, but we can stop customers failing at it. A person made the call in the incident, and every switch is audited | [Dashboard](https://app.datadoghq.com/dashboard/lists?q=Digital%20Channels) · [/bayar](https://136-69-32-40.sslip.io/bayar) |
+| 11 | Escalate to the partner | Incident → **Timeline** → add a note: "Escalated to GoPay ops desk via the PPOB aggregator: since <start>, ~40% 503s, sample trace <ID from step 3>" | Incident timeline note | We found it in minutes and handed the partner proof, not a guess | [Incidents](https://app.datadoghq.com/incidents) |
+| 12 | The partner fixes it | Say "GoPay confirms a fix on their side" and run `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml` off-camera | Scenario off | The fix is the partner's; our job is to know when it's real | — |
+| 13 | Verify with data | On the Digital Channels dashboard, watch **GoPay error rate** drop to 0% for the new bars (the health checks keep calling GoPay while it is off); the monitor turns green once the old errors leave its 10-minute window, and Application Support's page resolves with it; resolve the Digital Channels page; check the SLO has stopped burning | `ppob-gopay` errors back to zero, monitor OK, page resolved, SLO flat | Recovery is proven by data, not by the partner's word | [Dashboard](https://app.datadoghq.com/dashboard/lists?q=Digital%20Channels) · [Monitor](https://app.datadoghq.com/monitors/manage?q=Biller%20is%20failing) · [SLO](https://app.datadoghq.com/slo/manage?query=PPOB%20billers%20available) |
+| 14 | Switch GoPay back on | Dashboard → widget **2 · Aktifkan kembali GoPay** → **Run**; "GoPay in the app" turns 1. In the customer browser reload **Top Up & Tagihan** and pay a GoPay top-up successfully | Workflow run, change event, `/ops` → Audit Log `BILLER_DISABLE` then `BILLER_ENABLE` | Machines don't decide when the partner is back. We switch it on once the data says so | [Dashboard](https://app.datadoghq.com/dashboard/lists?q=Digital%20Channels) · [/bayar](https://136-69-32-40.sslip.io/bayar) · [/ops](https://136-69-32-40.sslip.io/ops) |
+| 15 | Close | Incident → status **Resolved** → **Generate postmortem** → scroll to Money and Follow-ups | Postmortem notebook from the "Partner outage postmortem" template: timeline, time to detect and to resolve, impact filled in | One complaint, one partner, money safe, partner told, recovery proven, write-up started | [Incidents](https://app.datadoghq.com/incidents) |
 
 <a id="cif-note"></a>
 **CIF and `@usr.id`.** CIF (*Customer Information File* number) is the bank's ID for a
@@ -127,7 +140,8 @@ On stage, don't rely on the session-level facet: search **Views** for `@usr.id:<
 `@usr.name:"<name>"`) and open the replay from that view, or use a session that has already
 ended (~15 min idle). Check this in rehearsal.
 
-End: `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml`.
+End: `curl -s -X DELETE $S` and `kubectl delete -f tools/scenarios/gopay-rush.yaml`, then make
+sure the dashboard shows "GoPay in the app" at 1 (run **2 · Aktifkan kembali GoPay** if not).
 
 <a id="bifast-errors"></a>
 ## Part 2 — `bifast-errors`: Datadog switches the rail off, a person switches it back on

@@ -177,6 +177,9 @@ export interface Biller {
   name: string;
   customer_number_label: string;
   open_amount: boolean;
+  /** false while operations has taken the biller out of service during a partner outage */
+  available: boolean;
+  unavailable_since?: string;
 }
 
 export interface BillerCategory {

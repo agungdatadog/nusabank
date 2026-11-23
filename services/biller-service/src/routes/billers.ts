@@ -5,6 +5,7 @@ import {
   BILLERS, CATEGORIES, EWALLET_MAX, EWALLET_MIN, billingPeriod, findProduct, isEwallet, isOperator,
   operatorOf, postpaidCategory, productsFor, type Category,
 } from "../catalog";
+import { assertAvailable, billerStates } from "../availability";
 import { createHold, lookupAccount, ppob, ppobError } from "../clients";
 import { config } from "../config";
 import { exec, inTx, rows } from "../db";
@@ -29,15 +30,17 @@ billers.use("*", async (c, next) => {
   await next();
 });
 
-billers.get("/categories", (c) =>
-  c.json(CATEGORIES.map((cat) => ({
+billers.get("/categories", async (c) => {
+  const states = await billerStates();
+  return c.json(CATEGORIES.map((cat) => ({
     code: cat.code,
     name: cat.name,
     billers: cat.billers.map((code) => ({
       code, name: BILLERS[code].name, customer_number_label: BILLERS[code].customerNumberLabel, open_amount: cat.openAmount,
+      available: states[code].available, ...(states[code].unavailable_since ? { unavailable_since: states[code].unavailable_since } : {}),
     })),
-  }))),
-);
+  })));
+});
 
 billers.get("/payments", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1) || 1);
@@ -69,6 +72,8 @@ billers.post("/inquiry", async (c) => {
   const code = str(body, "biller_code", { pattern: /^[a-z0-9-]+$/ });
   const biller = BILLERS[code];
   if (!biller) throw new ApiError(400, "UNKNOWN_BILLER", "Biller tidak tersedia");
+  tag({ "biller.code": code });
+  await assertAvailable(code);
   const customerNumber = str(body, "customer_number");
   if (!biller.customerNumber.test(customerNumber)) throw badRequest(`${biller.customerNumberLabel} tidak valid`);
   const productCode = str(body, "product_code", { optional: true });
@@ -152,6 +157,9 @@ billers.post("/payments", async (c) => {
 
   const replay = await loadPayment("cif = ? AND idempotency_key = ?", [cif, key]);
   if (replay) return c.json(paymentView(replay), 201);
+  // An inquiry made just before the biller was switched off must not reach the partner.
+  const [pending] = await rows<{ biller_code: string }>("SELECT biller_code FROM inquiries WHERE id = ? AND cif = ?", [inquiryId, cif]);
+  if (pending) await assertAvailable(pending.biller_code);
 
   const account = await lookupAccount(source);
   if (!account || account.cif !== cif) throw notFound("Rekening tidak ditemukan");

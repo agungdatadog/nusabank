@@ -15,7 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * The services that own the data: auth-service (customers), account-service (accounts),
- * payment-service (transfers). admin-service never reads their databases. Bodies are
+ * payment-service (transfers), biller-service (biller availability). admin-service never reads their databases. Bodies are
  * passed through as JSON so the shapes stay exactly those of catalog/openapi.yaml.
  */
 @Component
@@ -23,10 +23,12 @@ public class Downstreams {
     static final String AUTH = "auth-service";
     static final String ACCOUNT = "account-service";
     static final String PAYMENT = "payment-service";
+    static final String BILLER = "biller-service";
 
     private final RestClient auth;
     private final RestClient accounts;
     private final RestClient payments;
+    private final RestClient billers;
     private final ObjectMapper mapper;
 
     public Downstreams(RestClient.Builder builder, AdminProperties props, ObjectMapper mapper) {
@@ -34,6 +36,7 @@ public class Downstreams {
         this.accounts = builder.clone().baseUrl(props.accountServiceUrl()).requestFactory(factory(Duration.ofSeconds(3))).build();
         // A retry waits for the rail like a customer transfer does.
         this.payments = builder.clone().baseUrl(props.paymentServiceUrl()).requestFactory(factory(Duration.ofSeconds(15))).build();
+        this.billers = builder.clone().baseUrl(props.billerServiceUrl()).requestFactory(factory(Duration.ofSeconds(3))).build();
         this.mapper = mapper;
     }
 
@@ -122,6 +125,27 @@ public class Downstreams {
             throw ApiException.notFound(parse(e).path("message").asString("Rail tidak ditemukan"));
         } catch (RestClientException e) {
             throw down(PAYMENT);
+        }
+    }
+
+    public JsonNode billers() {
+        try {
+            return billers.get().uri("/internal/billers").retrieve().body(JsonNode.class);
+        } catch (RestClientException e) {
+            throw down(BILLER);
+        }
+    }
+
+    /** Validation answers (400, 404) pass through; anything else means biller-service is down. */
+    public JsonNode setBillerAvailability(String billerCode, java.util.Map<String, Object> change) {
+        try {
+            return billers.put().uri("/internal/billers/{code}/availability", billerCode).body(change).retrieve().body(JsonNode.class);
+        } catch (HttpClientErrorException.BadRequest e) {
+            throw ApiException.badRequest(message(e));
+        } catch (HttpClientErrorException.NotFound e) {
+            throw ApiException.notFound(parse(e).path("message").asString("Biller tidak ditemukan"));
+        } catch (RestClientException e) {
+            throw down(BILLER);
         }
     }
 
