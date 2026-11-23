@@ -2,7 +2,7 @@
 # first line and gets the monitor's page; after triage it declares an incident and pages the
 # owning team (Digital Channels for nusabank-biller) from the incident. EP2 Part 1.
 data "datadog_user" "on_call" {
-  for_each = toset(var.on_call_emails)
+  for_each = toset(concat(var.on_call_emails, var.channels_on_call_emails))
   filter   = each.value
   # filter is a substring match; exact_match keeps "ana@" from matching "diana@".
   exact_match = true
@@ -26,21 +26,22 @@ resource "datadog_team_hierarchy_links" "app_support_in_operations" {
 }
 
 locals {
-  channels_team    = datadog_team.nusabank["nusabank-channels"].id
-  app_support_team = datadog_team.app_support.id
-  on_call_users    = [for e in var.on_call_emails : data.datadog_user.on_call[e].id]
+  channels_team     = datadog_team.nusabank["nusabank-channels"].id
+  app_support_team  = datadog_team.app_support.id
+  app_support_users = [for e in var.on_call_emails : data.datadog_user.on_call[e].id]
+  channels_users    = [for e in var.channels_on_call_emails : data.datadog_user.on_call[e].id]
 }
 
 resource "datadog_team_membership" "channels_on_call" {
-  for_each = data.datadog_user.on_call
+  for_each = toset(var.channels_on_call_emails)
   team_id  = local.channels_team
-  user_id  = each.value.id
+  user_id  = data.datadog_user.on_call[each.value].id
 }
 
 resource "datadog_team_membership" "app_support_on_call" {
-  for_each = data.datadog_user.on_call
+  for_each = toset(var.on_call_emails)
   team_id  = local.app_support_team
-  user_id  = each.value.id
+  user_id  = data.datadog_user.on_call[each.value].id
 }
 
 # ───────────── Application Support: first line, paged by monitors ─────────────
@@ -53,7 +54,7 @@ resource "datadog_on_call_schedule" "app_support_primary" {
     name           = "Weekly rotation"
     effective_date = "2026-11-16T09:00:00+07:00"
     rotation_start = "2026-11-16T09:00:00+07:00"
-    users          = local.on_call_users
+    users          = local.app_support_users
     interval {
       days = 7
     }
@@ -107,7 +108,7 @@ resource "datadog_on_call_schedule" "channels_primary" {
     name           = "Weekly rotation"
     effective_date = "2026-11-16T09:00:00+07:00"
     rotation_start = "2026-11-16T09:00:00+07:00"
-    users          = local.on_call_users
+    users          = local.channels_users
     interval {
       days = 7
     }
