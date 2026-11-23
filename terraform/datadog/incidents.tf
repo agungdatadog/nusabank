@@ -44,6 +44,7 @@ output "on_call" {
   value = {
     app_support_schedule = datadog_on_call_schedule.app_support_primary.id
     channels_schedule    = datadog_on_call_schedule.channels_primary.id
+    network_schedule     = datadog_on_call_schedule.network_primary.id
     incident_type        = datadog_incident_type.partner_outage.id
   }
 }
