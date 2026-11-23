@@ -189,3 +189,95 @@ resource "datadog_workflow_automation" "bifast_restore" {
     ]
   })
 }
+
+# ─────────── EP2 Part 1: Digital Channels switches GoPay off and on, by hand ───────────
+# Unlike BI FAST, nothing triggers these automatically: the owning team decides during the
+# Partner outage incident and runs them from the "Digital Channels — Top Up & Tagihan"
+# dashboard. Same connection as BI FAST, so each switch is audited as ops.otomasi with the
+# Datadog user who ran it in the reason.
+
+locals {
+  channels_workflow_tags = ["team:nusabank-channels", "env:demo", "service:nusabank-biller", "managed-by:terraform"]
+
+  gopay_change_event = {
+    for state, v in {
+      disabled = { status = "GoPay dinonaktifkan di Top Up & Tagihan", available = false }
+      enabled  = { status = "GoPay diaktifkan kembali di Top Up & Tagihan", available = true }
+      } : state => {
+      category = "change"
+      title    = v.status
+      tags     = ["env:demo", "service:nusabank-biller", "biller:gopay", "team:nusabank-channels"]
+      attributes = {
+        changed_resource   = { name = "biller:gopay", type = "configuration" }
+        impacted_resources = [{ name = "nusabank-biller", type = "service" }]
+        prev_value         = { available = !v.available }
+        new_value          = { available = v.available }
+        author             = { name = "{{ Source.initiator.name }}", type = "user" }
+      }
+    }
+  }
+
+  gopay_switch = {
+    disable = {
+      name        = "[Nusa Bank] Nonaktifkan GoPay"
+      description = "Digital Channels, during a GoPay partner outage: takes GoPay out of Top Up & Tagihan (customers see it greyed out and pick another e-wallet) and records a change event. biller-service keeps checking GoPay in the background so recovery shows in the data. Turns itself back on after 2 hours if nobody does."
+      available   = false
+      reason      = "Dinonaktifkan oleh {{ Source.initiator.name }} (Digital Channels): GoPay gagal di partner"
+      message     = "{{ Source.initiator.name }} menonaktifkan GoPay di Top Up & Tagihan selama gangguan partner. Nasabah diarahkan ke e-wallet lain; tidak ada dana yang berpindah. Aktif otomatis kembali {{ Steps.Switch_GoPay.body.auto_enable_at }} jika tidak diaktifkan manual."
+    }
+    enable = {
+      name        = "[Nusa Bank] Aktifkan kembali GoPay"
+      description = "Digital Channels, once the GoPay error rate is back to zero: puts GoPay back in Top Up & Tagihan and records a change event."
+      available   = true
+      reason      = "Diaktifkan kembali oleh {{ Source.initiator.name }} (Digital Channels) setelah partner pulih"
+      message     = "{{ Source.initiator.name }} mengaktifkan kembali GoPay di Top Up & Tagihan setelah error rate GoPay kembali normal."
+    }
+  }
+}
+
+resource "datadog_workflow_automation" "gopay_switch" {
+  for_each = local.gopay_switch
+
+  name        = each.value.name
+  description = each.value.description
+  published   = true
+  tags        = local.channels_workflow_tags
+
+  spec_json = jsonencode({
+    connectionEnvs = [local.ops_connection]
+    triggers = [{
+      workflowTrigger = {}
+      startStepNames  = ["Switch_GoPay"]
+    }]
+    steps = [
+      {
+        name            = "Switch_GoPay"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_NUSABANK_OPS"
+        parameters = [
+          { name = "verb", value = "PUT" },
+          { name = "url", value = "${var.base_url}/api/admin/billers/gopay/availability" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = jsonencode({ available = each.value.available, reason = each.value.reason }) },
+          { name = "responseParsing", value = "json" },
+        ]
+        outboundEdges = [{ branchName = "main", nextStepName = "Record_change" }]
+      },
+      {
+        name            = "Record_change"
+        actionId        = "com.datadoghq.http.request"
+        connectionLabel = "INTEGRATION_DATADOG_EVENTS"
+        parameters = [
+          { name = "verb", value = "POST" },
+          { name = "url", value = "https://event-management-intake.datadoghq.com/api/v2/events" },
+          { name = "requestHeaders", value = [{ key = "Content-Type", value = ["application/json"] }] },
+          { name = "body", value = jsonencode({ data = { type = "event", attributes = merge(
+            local.gopay_change_event[each.key == "disable" ? "disabled" : "enabled"],
+            { message = each.value.message },
+          ) } }) },
+          { name = "responseParsing", value = "json" },
+        ]
+      },
+    ]
+  })
+}

@@ -933,6 +933,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: '`BILLER_DISABLED`: operations has taken this biller out of service'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '502': { $ref: '#/components/responses/PartnerError' }
         '503': { $ref: '#/components/responses/PartnerUnavailable' }
 
@@ -967,7 +972,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422':
-          description: Insufficient balance
+          description: Insufficient balance, or `BILLER_DISABLED` (biller taken out of service since the inquiry)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1000,6 +1005,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BillPayment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/billers:
+    get:
+      tags: [biller-service]
+      operationId: internalListBillers
+      summary: Billers with availability (admin-service operations view)
+      security: []
+      responses:
+        '200':
+          description: Billers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BillerAvailability' }
+
+  /internal/billers/{billerCode}/availability:
+    parameters:
+      - { name: billerCode, in: path, required: true, schema: { $ref: '#/components/schemas/BillerCode' } }
+    put:
+      tags: [biller-service]
+      operationId: internalSetBillerAvailability
+      summary: Take a biller out of service for new top-ups and payments, or put it back
+      description: |
+        While a biller is disabled, inquiries and payments for it get 422 `BILLER_DISABLED` and the
+        app shows it greyed out, so customers stop failing at the partner. biller-service keeps
+        sending one inquiry (no money involved) to the aggregator every 30 s per replica for each
+        disabled biller, so its error rate keeps reporting and recovery can be proven with data before
+        it is re-enabled. A disabled biller re-enables itself after `auto_enable_after_minutes`
+        (default 120) so a forgotten switch cannot degrade the demo baseline.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RailAvailabilityChange' }
+      responses:
+        '200':
+          description: The biller in its new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillerAvailability' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ──────────────────────────── rewards-service ────────────────────────────
@@ -1306,6 +1355,57 @@ paths:
               schema: { $ref: '#/components/schemas/Rail' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/PartnerError' }
+
+  /api/admin/billers:
+    get:
+      tags: [admin-service]
+      operationId: adminListBillers
+      summary: Billers with availability (proxies biller-service)
+      security:
+        - operatorJwt: []
+      responses:
+        '200':
+          description: Billers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BillerAvailability' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/admin/billers/{billerCode}/availability:
+    parameters:
+      - { name: billerCode, in: path, required: true, schema: { $ref: '#/components/schemas/BillerCode' } }
+    put:
+      tags: [admin-service]
+      operationId: adminSetBillerAvailability
+      summary: Disable or re-enable a biller in Top Up & Tagihan (EP2 Workflow Automation target)
+      description: |
+        Digital Channels runs the "Nonaktifkan GoPay" and "Aktifkan kembali GoPay" workflows from
+        their dashboard during a partner outage. Audited as BILLER_DISABLE / BILLER_ENABLE.
+      security:
+        - operatorJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [available]
+              properties:
+                available: { type: boolean }
+                reason: { type: string, maxLength: 200, examples: ['GoPay 503 di aggregator, insiden Partner outage'] }
+                auto_enable_after_minutes: { type: integer, minimum: 5, maximum: 480, default: 120 }
+      responses:
+        '200':
+          description: The biller in its new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillerAvailability' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '502': { $ref: '#/components/responses/PartnerError' }
 
   /api/admin/audit-log:
@@ -2144,7 +2244,7 @@ components:
       examples: ['gopay', 'ovo', 'shopeepay', 'dana', 'linkaja', 'telkomsel', 'indosat', 'xl', 'tri', 'smartfren', 'indihome', 'biznet', 'firstmedia', 'pln', 'pdam-jakarta', 'bpjs-kesehatan']
     Biller:
       type: object
-      required: [code, name, customer_number_label, open_amount]
+      required: [code, name, customer_number_label, open_amount, available]
       properties:
         code: { $ref: '#/components/schemas/BillerCode' }
         name: { type: string, examples: ['GoPay'] }
@@ -2152,6 +2252,24 @@ components:
         open_amount:
           type: boolean
           description: true for top-ups with a free amount; false when the biller sets the amount
+        available:
+          type: boolean
+          description: false while operations has taken the biller out of service (shown greyed out)
+        unavailable_since: { type: string, format: date-time }
+    BillerAvailability:
+      type: object
+      required: [code, name, available]
+      properties:
+        code: { $ref: '#/components/schemas/BillerCode' }
+        name: { type: string, examples: ['GoPay'] }
+        available: { type: boolean }
+        unavailable_reason: { type: string, description: 'Set when available is false' }
+        unavailable_since: { type: string, format: date-time }
+        auto_enable_at:
+          type: string
+          format: date-time
+          description: When a disabled biller re-enables itself if nobody does it first
+        changed_by: { type: string, description: 'Operator who last changed availability', examples: ['ops.otomasi'] }
     BillerCategory:
       type: object
       required: [code, name, billers]

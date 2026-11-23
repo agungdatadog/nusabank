@@ -35,6 +35,7 @@ public class AdminController {
     private static final Pattern ACCOUNT_RE = Pattern.compile("^\\d{16}$");
     private static final List<String> STATUSES = List.of("PROCESSING", "SUCCESS", "FAILED");
     private static final List<String> RAILS = List.of("INTRABANK", "BIFAST", "SKN");
+    private static final Pattern BILLER_RE = Pattern.compile("^[a-z0-9-]{2,32}$");
 
     private final OperatorService operators;
     private final JwtIssuer issuer;
@@ -144,6 +145,36 @@ public class AdminController {
         JsonNode result = downstreams.setRailAvailability(rail, change);
         statsd.incrementCounter("nusabank.admin.rail_change.count", "rail:" + rail.toLowerCase(), "available:" + body.available(), "operator:" + op);
         log.info("rail availability changed operator={} rail={} available={} reason={}", op, rail, body.available(), reason);
+        return result;
+    }
+
+    @GetMapping("/billers")
+    JsonNode billers() {
+        return downstreams.billers();
+    }
+
+    /**
+     * Takes a biller (e.g. GoPay) out of Top Up & Tagihan, or puts it back. Digital Channels runs
+     * this through Datadog Workflow Automation during a partner outage; it acts as ops.otomasi.
+     */
+    @PutMapping("/billers/{billerCode}/availability")
+    JsonNode setBillerAvailability(@PathVariable String billerCode, @RequestBody RailAvailabilityRequest body, HttpServletRequest req) {
+        if (!BILLER_RE.matcher(billerCode).matches()) throw ApiException.notFound("Biller tidak ditemukan");
+        if (body == null || body.available() == null) throw ApiException.badRequest("available is required");
+        String reason = body.reason() == null ? "" : body.reason().trim();
+        if (reason.length() > 200) throw ApiException.badRequest("reason must be at most 200 characters");
+        String op = operator(req);
+        Spans.tagRoot("biller.code", billerCode);
+        Spans.tagRoot("biller.available", body.available().toString());
+        audit.record(op, body.available() ? "BILLER_ENABLE" : "BILLER_DISABLE", reason.isEmpty() ? billerCode : billerCode + ": " + reason);
+        Map<String, Object> change = new java.util.LinkedHashMap<>();
+        change.put("available", body.available());
+        change.put("changed_by", op);
+        if (!reason.isEmpty()) change.put("reason", reason);
+        if (body.autoEnableAfterMinutes() != null) change.put("auto_enable_after_minutes", body.autoEnableAfterMinutes());
+        JsonNode result = downstreams.setBillerAvailability(billerCode, change);
+        statsd.incrementCounter("nusabank.admin.biller_change.count", "biller:" + billerCode, "available:" + body.available(), "operator:" + op);
+        log.info("biller availability changed operator={} biller={} available={} reason={}", op, billerCode, body.available(), reason);
         return result;
     }
 

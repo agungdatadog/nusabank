@@ -31,3 +31,4 @@ nusabank:
   auth-service-url: ${AUTH_SERVICE_URL:http://auth-service.nusabank.svc.cluster.local:8080}
   account-service-url: ${ACCOUNT_SERVICE_URL:http://account-service.nusabank.svc.cluster.local:8080}
   payment-service-url: ${PAYMENT_SERVICE_URL:http://payment-service.nusabank.svc.cluster.local:8080}
+  biller-service-url: ${BILLER_SERVICE_URL:http://biller-service.nusabank.svc.cluster.local:8080}

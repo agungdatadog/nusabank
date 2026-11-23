@@ -6,8 +6,10 @@ import { migrate, pool } from "./db";
 import { ApiError, errorBody } from "./errors";
 import { logger } from "./logger";
 import { connectProducer, shutdown, startSweeper } from "./outbox";
+import { startHealthCheck } from "./availability";
 import { startReconciler } from "./payments";
 import { billers } from "./routes/billers";
+import { internal } from "./routes/internal";
 
 const app = new Hono();
 
@@ -37,6 +39,7 @@ app.get("/readyz", async (c) => {
 });
 
 app.route("/api/billers", billers);
+app.route("/internal", internal);
 
 app.notFound((c) => c.json({ code: "NOT_FOUND", message: "Endpoint tidak ditemukan" }, 404));
 
@@ -55,7 +58,7 @@ async function main() {
   await migrate();
   // Payments still work while Kafka is down: events wait in the outbox.
   connectProducer().then(() => logger.info("kafka producer connected"), (err) => logger.error({ err }, "kafka producer connect failed"));
-  const timers = [startSweeper(), startReconciler()];
+  const timers = [startSweeper(), startReconciler(), startHealthCheck()];
   const server = serve({ fetch: app.fetch, port: config.port }, () => logger.info({ port: config.port }, "biller-service listening"));
   process.on("SIGTERM", () => {
     timers.forEach(clearInterval);
