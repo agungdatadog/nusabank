@@ -220,7 +220,7 @@ locals {
   gopay_switch = {
     disable = {
       name        = "[Nusa Bank] Nonaktifkan GoPay"
-      description = "Digital Channels, during a GoPay partner outage: takes GoPay out of Top Up & Tagihan (customers see it greyed out and pick another e-wallet) and records a change event. biller-service keeps checking GoPay in the background so recovery shows in the data. Turns itself back on after 2 hours if nobody does."
+      description = "Digital Channels, during a GoPay partner outage: takes GoPay out of Top Up & Tagihan (customers pick another e-wallet) and records a change event. GoPay is still health-checked while off. Turns itself back on after 2 hours."
       available   = false
       reason      = "Dinonaktifkan oleh {{ Source.initiator.name }} (Digital Channels): GoPay gagal di partner"
       message     = "{{ Source.initiator.name }} menonaktifkan GoPay di Top Up & Tagihan selama gangguan partner. Nasabah diarahkan ke e-wallet lain; tidak ada dana yang berpindah. Aktif otomatis kembali {{ Steps.Switch_GoPay.body.auto_enable_at }} jika tidak diaktifkan manual."
