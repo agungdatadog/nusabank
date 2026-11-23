@@ -31,3 +31,9 @@ variable "channels_on_call_emails" {
   description = "Datadog users in the Digital Channels on-call rotation, in rotation order (weekly from 16 Nov 2026). They get real pages."
   default     = ["agung.nugroho@datadoghq.com", "daren.meisa@datadoghq.com"]
 }
+
+variable "network_on_call_emails" {
+  type        = list(string)
+  description = "Datadog users in the Network on-call rotation, in rotation order (weekly from 16 Nov 2026). Reversed from Digital Channels so one person never holds both in the same week."
+  default     = ["daren.meisa@datadoghq.com", "agung.nugroho@datadoghq.com"]
+}
