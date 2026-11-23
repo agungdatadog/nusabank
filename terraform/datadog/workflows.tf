@@ -245,10 +245,11 @@ resource "datadog_workflow_automation" "gopay_switch" {
 
   spec_json = jsonencode({
     connectionEnvs = [local.ops_connection]
-    triggers = [{
-      workflowTrigger = {}
-      startStepNames  = ["Switch_GoPay"]
-    }]
+    # The dashboard's Run Workflow widget only lists workflows with a dashboard trigger; the API
+    # trigger lets a rehearsal script run them too.
+    triggers = [
+      for t in ["dashboardTrigger", "apiTrigger"] : { (t) = {}, startStepNames = ["Switch_GoPay"] }
+    ]
     steps = [
       {
         name            = "Switch_GoPay"
