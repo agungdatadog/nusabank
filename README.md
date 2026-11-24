@@ -23,7 +23,7 @@ of the *same* running system.
 | **EP2 — UNDERSTAND & ACT** | When Every Transaction Matters: From Root Cause to Rapid Recovery | Why did it happen, and how do we recover? | Session Replay · Error Tracking · Continuous Profiler · transaction-level correlation & RCA · Bits AI Investigation · SLO / Service Health · On-Call · Incident Management · Workflow Automation | Shoffa |
 | **EP3 — PROTECT & EVOLVE** | Building Trusted Financial Services: Data Sovereignty, Security & AI | How do we innovate while protecting sensitive data? | Data residency / sovereignty · BYOC Logs · Observability Pipelines · Sensitive Data Scanner · Agent Observability · AI quality, latency, errors & cost · AI Guard | Daren |
 
-**Air dates:** EP1 29 October 2026 (aired) · EP2 24 November 2026 · EP3 22 December 2026.
+**Air dates:** EP1 29 October 2026 (aired) · EP2 24 November 2026 (aired) · EP3 22 December 2026.
 
 The application is built **complete before EP1**. What phases per episode is the
 *Datadog configuration* and the *demo scenarios* — not the app itself. This avoids

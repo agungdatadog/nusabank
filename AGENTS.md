@@ -6,7 +6,7 @@
 application behind a three-episode Datadog webinar series for financial services.
 See [README.md](./README.md) for the service list, feature map and architecture.
 
-**EP1 aired 29 October 2026; EP2 airs 24 November, EP3 22 December.** Timeline pressure is real — the binding
+**EP1 aired 29 October 2026; EP2 aired 24 November; EP3 airs 22 December.** Timeline pressure is real — the binding
 constraint is *traffic history*, not code volume. Datadog SLOs, monitor baselines,
 Watchdog, Error Tracking grouping and Session Replay all need accumulated calendar
 time. Therefore: **deploy early and keep traffic running**, even when services are
