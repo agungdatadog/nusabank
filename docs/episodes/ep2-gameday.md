@@ -6,6 +6,29 @@ expects from Indonesian banks. On stage, Bits AI finding the injected fault is a
 the investigation reaches the true cause on its own. **Part 3** is the other kind of incident:
 a bug in our own code, which Bits traces to the line and Bits Code fixes.
 
+## State after the show (24 Nov 2026)
+
+EP2 has aired and its owner (Shoffa) has handed over. The environment stays up for EP3.
+
+- **Scenarios:** all off. The GoPay rush job is deleted. No monitor alerting, no open incidents,
+  no downtimes.
+- **On-Call:** Application Support, Digital Channels and Network all rotate weekly between Agung
+  Nugroho and Daren Meisa (`terraform/datadog/variables.tf`). Network runs in reverse order, so
+  one person never has both Network and the other two in the same week. The Partner outage
+  notification rule emails the App Support list. Shoffa is in none of them.
+- **Terraform app key:** `indowebinar-dd-app-key` still holds Shoffa's Datadog app key
+  ([deploy notes](../operations/deploy.md)). Replace it with the EP3 owner's key before Shoffa's
+  is revoked, or applies fail.
+- **Drift, fix before the next full apply:** `datadog_dashboard.channels` in Datadog has GoPay
+  availability and error-rate widgets that are not in `main`. Whoever added them must merge them
+  first, or a full `terraform apply` deletes them.
+- **UI-only settings** (no API): Bits.md (from `docs/bits/bits.md`), the per-monitor
+  *Investigate with Bits* toggle, monitor memories, and the Zoom/Slack settings under
+  Incidents → Settings → *incident type* → Integrations.
+- **Known issue:** Bits Investigation can reuse an old monitor memory that names the GoPay
+  scenario, even after the memories are deleted (seen in investigation
+  `86879733-e610-4d88-a205-5d4037fcb098`). Check the investigation before showing it live.
+
 ## Scenarios
 
 The live show runs **Parts 1–3**, plus **Part 4** (Continuous Profiler) if time allows; the rest are spares for rehearsals, Q&A or a
