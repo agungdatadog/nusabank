@@ -63,10 +63,10 @@ log in to the demo org first.
       "Slow transfer submission (p95)" + "Slow e-Statement download (p95)" (Part 3), and
       "Slow loan simulation (p95)" (Part 4, if Bits is part of it);
       a monitor re-created by Terraform loses it.
-- [ ] On-Call: the presenter is on call for **Application Support** (`on_call_emails`);
-      **Digital Channels** rotates weekly between Agung Nugroho and Daren Meisa
-      (`channels_on_call_emails`, both in `terraform/datadog/variables.tf`) — tell whoever is on
-      call that week a page is coming in step 8. **Network** rotates between the same two in reverse
+- [ ] On-Call: **Application Support** (`on_call_emails`) and **Digital Channels**
+      (`channels_on_call_emails`, both in `terraform/datadog/variables.tf`) rotate weekly between
+      Agung Nugroho and Daren Meisa — put the presenter in `on_call_emails` for the show so the
+      monitor page lands on their phone, and tell whoever has Digital Channels a page is coming in step 8. **Network** rotates between the same two in reverse
       order (`network_on_call_emails`), so on 24 Nov Daren has Digital Channels and Agung has
       Network; tell them both. For step 9, note the PPOB gateway's pod IP:
       `kubectl get pod -n nusabank -l app=partner-mock -o wide` (it changes if the pod restarts).

@@ -22,8 +22,8 @@ variable "gce_instance_filters" {
 
 variable "on_call_emails" {
   type        = list(string)
-  description = "Datadog users in the Application Support on-call rotation, in rotation order. They get real pages."
-  default     = ["shoffa.alarofat@datadoghq.com"]
+  description = "Datadog users in the Application Support on-call rotation, in rotation order (weekly from 16 Nov 2026). They get real pages from every Nusa Bank monitor."
+  default     = ["agung.nugroho@datadoghq.com", "daren.meisa@datadoghq.com"]
 }
 
 variable "channels_on_call_emails" {
